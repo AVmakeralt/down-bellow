@@ -15,12 +15,14 @@
  *   ' '  empty       (non-solid, no draw)
  *   'P'  player spawn
  *   'E'  enemy spawn (void crawler)
+ *   'S'  save point  (checkpoint; auto-saves on entry, manual F5 nearby)
  *
  * Lines must be equal width. The first line is the top of the world.
  */
 
 #define MAX_LEVEL_W 256
 #define MAX_LEVEL_H 64
+#define MAX_SAVE_POINTS 16
 
 typedef struct {
     int   w, h;
@@ -28,6 +30,8 @@ typedef struct {
     Vec2  player_spawn;
     Vec2  enemy_spawns[32];
     int   enemy_count;
+    Vec2  save_points[MAX_SAVE_POINTS];   /* 'S' tiles: checkpoints */
+    int   save_point_count;
 } Level;
 
 bool level_load(Level* lvl, const char* path);

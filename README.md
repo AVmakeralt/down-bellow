@@ -1,7 +1,7 @@
 # The Voided
 
 A 2D metroidvania about a small shade born of god and void, made to unshackle
-the void from its cage. **Prototype v0.2** — game-feel pass complete.
+the void from its cage. **Prototype v0.4** — save system + visual identity pass.
 
 > *"You… who are you? No…. what are you? Are you one of them? Maybe you are…
 > but you seem small….hmmmm…"*
@@ -13,7 +13,35 @@ see what the sprites look like without running the game.
 
 ---
 
-## v0.2 changelog (this update)
+## v0.4 changelog (this update)
+
+Save system + visual identity pass:
+
+**Save system (`src/save.{h,c}`):**
+- Binary `save.dat` with magic + version header (forward-compat).
+- Three save triggers:
+  - **AUTO_PLACE** — player steps onto an `S` tile in the level. One-shot per entry (must leave + re-enter to re-trigger).
+  - **AUTO_TIME** — every 10 minutes of playtime (`AUTOSAVE_INTERVAL_TICKS = 36000`).
+  - **MANUAL** — F5 (`BTN_SAVE`). 0.5s cooldown to prevent spam.
+- Atomic writes (`.tmp` → rename) so a crash mid-write can't corrupt the save.
+- Save captures: player position, facing, HP, kenotita, level path, play_time_ticks, save_count, last_reason.
+- `world_init` loads `save.dat` if present; restores position/HP/kenotita + continues play_time counter.
+- `S` tile in level file marks save points (bench-style). Up to `MAX_SAVE_POINTS = 16` per level.
+- **Save-flash overlay**: bottom-right chip with purple accent + diamond icon, fades over 3 seconds. Different bar-pattern per save reason (MANUAL = 3 bars, AUTO_PLACE = 4 bars, AUTO_TIME = 2 bars + dot).
+- **Save-point marker**: pulsing purple diamond on the ground at each `S` tile, with a soft void-glow under it.
+- Celebratory particles + SFX when a save fires.
+
+**Visual identity (per "this looks basic" feedback):**
+- Layer 1: Internal render scale 480×270 → 1280×720 nearest-neighbor. Sprites now 11% of screen width (was 2.5%). All hand-drawn detail visible. `SDL_RenderSetLogicalSize` + `SDL_SetHint(RENDER_SCALE_QUALITY, "0")`.
+- Layer 2: Vertical void gradient background (top violet-black → bottom deep void). Replaces flat clear.
+- Layer 3: 4-layer parallax — far cathedral silhouettes (0.05×), mid bgwall (0.4×), foreground solids (1.0×), foreground-fx (vignette + grain).
+- Layer 4: Void glow under player. Pre-baked 64×64 radial gradient, additive blend, ease-out quartic. Intensifies during sprint/attack/hurt. **Signature visual.**
+- Layer 5: 40 ambient void motes drifting upward, sinusoidal sway + sine-modulated alpha.
+- Layer 6: Palette surgery — everything cool/purple. Stone is purple-tinted (not gray). Eye glow is actual cyan. Signature void purple bright `0xC030FF` is the through-line.
+- Layer 7: Idle breathing (1px vertical squash on 60-tick cycle) + cyan eye pulse on player + purple eye pulse on crawler.
+- Post: Vignette (dark edges, blend) + film grain (64×64 noise tile, animated offset). Both pre-baked at startup.
+
+## v0.2 changelog
 
 Game-feel pass + architectural refactor:
 
@@ -140,6 +168,7 @@ the-voided/
 │   ├── tentacles.{h,c}          # Mindless Sprint 5-segment IK tentacles
 │   ├── hotreload.{h,c}          # inotify watcher for tunables/levels
 │   ├── scene.{h,c}              # Scene stack with vtable
+│   ├── save.{h,c}               # Binary save/load (auto + manual)
 │   ├── scenes_builtin.c         # TITLE / INTRO / WORLD / PAUSE scenes
 │   ├── world.{h,c}              # World update + draw (orchestrates everything)
 │   └── main.c                   # Entry point, fixed-timestep loop
@@ -163,6 +192,7 @@ the-voided/
 | P            | Pause                        |
 | F1           | Toggle debug hitboxes        |
 | F2           | Toggle slow-mo (1/4 speed)   |
+| F5           | Manual save (anywhere)       |
 | Esc          | Quit / back to title         |
 
 Gamepad: A=jump, X=attack, Y=pogo, B/RS=sprint, Start=pause, Back=debug.

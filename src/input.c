@@ -12,6 +12,7 @@ static SDL_Scancode keymap[BTN_COUNT] = {
     [BTN_POGO]   = SDL_SCANCODE_C,        /* C = alt pogo trigger        */
     [BTN_SPRINT] = SDL_SCANCODE_LSHIFT,   /* Shift = mindless sprint     */
     [BTN_PAUSE]  = SDL_SCANCODE_P,
+    [BTN_SAVE]    = SDL_SCANCODE_F5,
     [BTN_QUIT]   = SDL_SCANCODE_ESCAPE,
     [BTN_DEBUG]  = SDL_SCANCODE_F1,
     [BTN_SLOWMO] = SDL_SCANCODE_F2,

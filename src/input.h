@@ -25,6 +25,7 @@ typedef enum {
     BTN_POGO,
     BTN_SPRINT,         /* manual mindless sprint trigger */
     BTN_PAUSE,
+    BTN_SAVE,           /* F5: manual save (works anywhere) */
     BTN_QUIT,
     BTN_DEBUG,          /* F1 */
     BTN_SLOWMO,         /* F2 */

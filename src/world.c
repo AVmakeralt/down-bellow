@@ -6,18 +6,39 @@
 #include "particles.h"
 #include "audio.h"
 #include "i18n.h"
+#include "save.h"
 
 #include <string.h>
 #include <math.h>
+#include <stdio.h>
 
 void world_init(World* w, const char* level_path, Audio* audio) {
     memset(w, 0, sizeof(*w));
+    strncpy(w->level_path, level_path, sizeof(w->level_path) - 1);
     level_load(&w->level, level_path);
-    player_init(&w->player, w->level.player_spawn);
+
+    /* try to load existing save; if present, restore player state */
+    save_init(&w->save);
+    bool have_save = save_read(&w->save, SAVE_FILE);
+    Vec2 spawn = w->level.player_spawn;
+    if (have_save && strcmp(w->save.level_path, level_path) == 0) {
+        /* same level as the save -> restore position */
+        spawn = vec2(w->save.player_x, w->save.player_y);
+        w->play_time_ticks = w->save.play_time_ticks;
+    } else if (have_save) {
+        /* save exists but for a different level -> keep play_time, spawn at
+         * this level's default entry point */
+        w->play_time_ticks = w->save.play_time_ticks;
+    }
+    player_init(&w->player, spawn);
+    if (have_save) {
+        w->player.hp = w->save.player_hp;
+        w->player.kenotita = w->save.player_kenotita;
+        w->player.facing = w->save.player_facing;
+    }
+
     for (int i = 0; i < w->level.enemy_count && i < MAX_ENEMIES; i++) {
         Enemy* e = &w->enemies[w->enemy_count];
-        /* default: spawn as crawler. To add more types, switch on a
-         * marker char in the level file (e.g. 'C' = crawler, 'M' = moth). */
         crawler_init(e, w->level.enemy_spawns[i]);
         w->enemy_count++;
     }
@@ -26,6 +47,10 @@ void world_init(World* w, const char* level_path, Audio* audio) {
     tentacles_init(&w->tentacles);
     w->audio = audio;
     w->player_attack.kind = ATTACK_NONE;
+    w->save_zone_idx = -1;
+    w->save_zone_armed = true;
+    w->save_flash = 0;
+    w->last_save_tick = 0;
 }
 
 Enemy* world_spawn_enemy(World* w) {
@@ -33,18 +58,102 @@ Enemy* world_spawn_enemy(World* w) {
     return &w->enemies[w->enemy_count++];
 }
 
+/* ---- save helpers ---- */
+int world_current_save_zone(const World* w) {
+    Rect pb = player_bounds(&w->player);
+    Vec2 pc = rect_center(pb);
+    for (int i = 0; i < w->level.save_point_count; i++) {
+        Vec2 sp = w->level.save_points[i];
+        float dx = pc.x - sp.x;
+        float dy = pc.y - sp.y;
+        /* within 1.5 tiles of the save point counts as "on it" */
+        if (dx*dx + dy*dy < (TILE_SIZE * 1.5f) * (TILE_SIZE * 1.5f)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+bool world_save_now(World* w, SaveReason reason) {
+    /* cooldown only applies to AUTO_TIME (prevent the 10-min timer from
+     * re-firing if play_time_ticks wraps or hits the boundary twice).
+     * AUTO_PLACE has its own one-shot-per-entry logic. MANUAL has its
+     * own 0.5s cooldown in world_update. */
+    if (reason == SAVE_REASON_AUTO_TIME
+        && w->play_time_ticks - w->last_save_tick < AUTOSAVE_COOLDOWN_TICKS) {
+        return false;
+    }
+    save_capture(&w->save,
+                 w->level_path,
+                 w->player.pos.x, w->player.pos.y,
+                 w->player.facing,
+                 w->player.hp,
+                 w->player.kenotita,
+                 0, 0,   /* siblings / anchors - not yet tracked */
+                 w->play_time_ticks,
+                 w->save.save_count,
+                 reason);
+    bool ok = save_write(&w->save, SAVE_FILE);
+    if (ok) {
+        w->last_save_tick = w->play_time_ticks;
+        w->save_flash = SAVE_FLASH_TICKS;
+        w->effects.saved = true;
+        w->effects.save_reason = reason;
+        /* celebratory particles + void glow pulse */
+        Vec2 pc = rect_center(player_bounds(&w->player));
+        particles_burst(&w->particles, pc, 14, PT_VOID, vec2(0, -0.4f), 3.0f);
+        particles_burst(&w->particles, pc, 6, PT_SPARK, vec2(0, -0.6f), 4.0f);
+        if (w->audio) audio_play(w->audio, SFX_MENU_SELECT);
+        fprintf(stderr, "[save] %s (count=%u, play_time=%u ticks)\n",
+                save_reason_label(reason), w->save.save_count, w->play_time_ticks);
+    } else {
+        fprintf(stderr, "[save] FAILED to write save.dat\n");
+    }
+    return ok;
+}
+
 void world_update(World* w, const Input* in, float dt) {
     /* hit-stop: freeze the world while player.hitstop > 0 */
     if (w->player.hitstop > 0) {
-        /* still update camera (for shake) and particles? Convention in
-         * HK/Celeste is to freeze EVERYTHING. We freeze entities, but
-         * let camera shake continue so the freeze itself feels physical. */
         camera_update(&w->camera);
         return;
     }
 
     /* clear per-tick effects */
     memset(&w->effects, 0, sizeof(w->effects));
+
+    /* ---- play time tick (drives the 10-min auto-save) ---- */
+    w->play_time_ticks++;
+    if (w->save_flash > 0) w->save_flash--;
+
+    /* ---- save triggers ---- */
+
+    /* 1. AUTO_TIME: every 10 minutes of play */
+    if (w->play_time_ticks > 0
+        && (w->play_time_ticks % AUTOSAVE_INTERVAL_TICKS) == 0) {
+        world_save_now(w, SAVE_REASON_AUTO_TIME);
+    }
+
+    /* 2. AUTO_PLACE: stepped onto a save point (one-shot per entry) */
+    int zone = world_current_save_zone(w);
+    if (zone >= 0 && w->save_zone_armed && zone != w->save_zone_idx) {
+        world_save_now(w, SAVE_REASON_AUTO_PLACE);
+        w->save_zone_idx = zone;
+        w->save_zone_armed = false;   /* must leave before re-triggering */
+    }
+    if (zone < 0) {
+        /* player left the zone (or was never in one) — re-arm */
+        w->save_zone_idx = -1;
+        w->save_zone_armed = true;
+    }
+
+    /* 3. MANUAL: F5 (always works, but cooldown still applies to prevent
+     *    disk thrash if the player mashes it) */
+    if (in->pressed[BTN_SAVE]) {
+        if (w->play_time_ticks - w->last_save_tick >= 30) {  /* 0.5s cooldown */
+            world_save_now(w, SAVE_REASON_MANUAL);
+        }
+    }
 
     /* player + combat */
     player_update(&w->player, &w->player_attack, in, &w->level);
@@ -409,6 +518,93 @@ static void draw_void_motes(World* w, Renderer* r, int tick) {
     }
 }
 
+/* ---- save point markers ------------------------------------------ *
+ * Drawn in the world as a small pulsing purple diamond on the ground.
+ * Tells the player "stand here to save."
+ */
+static void draw_save_points(World* w, Renderer* r) {
+    Camera* c = &w->camera;
+    for (int i = 0; i < w->level.save_point_count; i++) {
+        Vec2 sp = w->level.save_points[i];
+        IVec2 s = camera_world_to_screen(c, sp.x, sp.y);
+        /* pulse on a slow sine */
+        float pulse = 0.5f + 0.5f * sinf(w->player.anim_timer * 0.06f);
+        Uint8 a = (Uint8)(80 + 100 * pulse);
+        /* small diamond: 4 rects forming a + */
+        Color col = 0x00C030FF | ((Uint32)a << 24);
+        IRect r1 = { s.x - 1, s.y - 6, 3, 13 };
+        IRect r2 = { s.x - 6, s.y - 1, 13, 3 };
+        draw_rect_screen(r, r1, col, 1);
+        draw_rect_screen(r, r2, col, 1);
+        /* soft glow under the marker */
+        draw_void_glow(r, s.x, s.y, 12, (Uint8)(60 + 60 * pulse));
+        /* ground line indicator */
+        IRect base = { s.x - 10, s.y + 8, 21, 1 };
+        draw_rect_screen(r, base, col, 1);
+    }
+}
+
+/* ---- save flash overlay ----------------------------------------- *
+ * Drawn in the bottom-right corner for 3 seconds after a save fires.
+ * Small purple chip with the save reason label (rendered as colored
+ * bars since we don't have a font yet).
+ */
+static void draw_save_flash(World* w, Renderer* r) {
+    if (w->save_flash <= 0) return;
+    /* fade in for first 10 ticks, hold, fade out for last 30 */
+    int t = SAVE_FLASH_TICKS - w->save_flash;  /* 0 .. SAVE_FLASH_TICKS */
+    float alpha;
+    if (t < 10)        alpha = t / 10.0f;
+    else if (t > SAVE_FLASH_TICKS - 30) alpha = (SAVE_FLASH_TICKS - t) / 30.0f;
+    else               alpha = 1.0f;
+    if (alpha < 0) alpha = 0;
+    if (alpha > 1) alpha = 1;
+
+    /* chip position: bottom-right corner of the logical viewport */
+    int chip_w = 70, chip_h = 18;
+    int cx = r->logical_w - chip_w - 6;
+    int cy = r->logical_h - chip_h - 6;
+
+    /* background panel (dark) */
+    Uint8 bg_a = (Uint8)(180 * alpha);
+    IRect panel = { cx, cy, chip_w, chip_h };
+    draw_rect_screen(r, panel, 0x00100612 | ((Uint32)bg_a << 24), 1);
+
+    /* purple accent bar on the left edge */
+    Uint8 ac_a = (Uint8)(220 * alpha);
+    IRect accent = { cx, cy, 3, chip_h };
+    draw_rect_screen(r, accent, 0x00C030FF | ((Uint32)ac_a << 24), 1);
+
+    /* icon: small diamond = "saved" */
+    int ix = cx + 10, iy = cy + chip_h / 2;
+    Uint8 ic_a = (Uint8)(240 * alpha);
+    Color ic = 0x00C030FF | ((Uint32)ic_a << 24);
+    IRect ic1 = { ix - 1, iy - 3, 3, 7 };
+    IRect ic2 = { ix - 3, iy - 1, 7, 3 };
+    draw_rect_screen(r, ic1, ic, 1);
+    draw_rect_screen(r, ic2, ic, 1);
+
+    /* "bars" representing the save reason text (we have no font yet):
+     *   MANUAL       = 3 short bars
+     *   AUTO_PLACE   = 4 bars (longer)
+     *   AUTO_TIME    = 2 bars + dot
+     */
+    int bx = cx + 20, by = cy + chip_h / 2 - 1;
+    Uint8 txt_a = (Uint8)(230 * alpha);
+    Color tc = 0x00EAE0F0 | ((Uint32)txt_a << 24);
+    int bar_count = 3;
+    if (w->save.last_reason == SAVE_REASON_AUTO_PLACE) bar_count = 4;
+    else if (w->save.last_reason == SAVE_REASON_AUTO_TIME) bar_count = 2;
+    for (int i = 0; i < bar_count; i++) {
+        IRect bar = { bx + i * 8, by, 6, 2 };
+        draw_rect_screen(r, bar, tc, 1);
+    }
+    if (w->save.last_reason == SAVE_REASON_AUTO_TIME) {
+        IRect dot = { bx + bar_count * 8, by, 2, 2 };
+        draw_rect_screen(r, dot, tc, 1);
+    }
+}
+
 void world_draw(World* w, Renderer* r) {
     /* ---- Layer 1: vertical void gradient (replaces flat clear) ---- */
     draw_void_gradient(w, r);
@@ -464,6 +660,10 @@ void world_draw(World* w, Renderer* r) {
     /* ---- Layer 7: post-processing (vignette + grain) ----------- */
     draw_vignette(r);
     draw_grain(r, w->player.anim_timer);
+
+    /* ---- save point markers + save-flash overlay ---- */
+    draw_save_points(w, r);
+    draw_save_flash(w, r);
 
     draw_debug(w, r);
 }

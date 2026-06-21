@@ -45,6 +45,14 @@ bool level_load(Level* lvl, const char* path) {
                     lvl->enemy_count++;
                 }
                 lvl->tiles[y][x] = ' ';
+            } else if (c == 'S') {
+                if (lvl->save_point_count < MAX_SAVE_POINTS) {
+                    lvl->save_points[lvl->save_point_count] = vec2(
+                        (float)(x * TILE_SIZE + TILE_SIZE / 2),
+                        (float)(y * TILE_SIZE + TILE_SIZE / 2));
+                    lvl->save_point_count++;
+                }
+                lvl->tiles[y][x] = ' ';
             }
         }
         y++;

@@ -17,3 +17,8 @@ sdl2-local/
 # Local token cache / secrets
 .token
 .env
+
+# Save files (per-player runtime state, not source)
+save.dat
+save.dat.tmp
+*.sav

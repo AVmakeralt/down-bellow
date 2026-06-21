@@ -35,7 +35,8 @@ static int g_screenshot_frame = -1;
 static const char* g_screenshot_path = NULL;
 static int g_auto_walk = 0;
 static int g_force_debug = 0;
-static int g_skip_title = 0;   /* --skip-title: jump straight to world */
+static int g_skip_title = 0;
+static int g_save_at_tick = -1;   /* inject BTN_SAVE press at this tick */
 
 int main(int argc, char** argv) {
     for (int i = 1; i < argc; i++) {
@@ -50,6 +51,9 @@ int main(int argc, char** argv) {
             g_force_debug = 1;
         } else if (strcmp(argv[i], "--skip-title") == 0) {
             g_skip_title = 1;
+        } else if (strcmp(argv[i], "--save-at") == 0 && i + 1 < argc) {
+            g_save_at_tick = atoi(argv[i+1]);
+            i += 1;
         }
     }
 
@@ -130,6 +134,12 @@ int main(int argc, char** argv) {
             }
             g_auto_walk--;
             if (g_auto_walk == 0) input.down[BTN_RIGHT] = false;
+        }
+
+        /* inject a manual save press at the requested tick (for testing) */
+        if (g_save_at_tick >= 0 && frame_idx >= g_save_at_tick) {
+            input.pressed[BTN_SAVE] = true;
+            g_save_at_tick = -1;   /* one-shot */
         }
 
         /* ---- fixed ticks ---- */

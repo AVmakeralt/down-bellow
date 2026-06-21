@@ -9,6 +9,7 @@
 #include "particles.h"
 #include "audio.h"
 #include "tentacles.h"
+#include "save.h"
 
 #define MAX_ENEMIES 64   /* mirrors config.h */
 
@@ -31,8 +32,10 @@ typedef struct {
     bool  perfect_parry;
     bool  pogo_bounced;
     bool  sprint_started;
-    Vec2  last_event_pos;     /* world-space, for camera zoom + particles */
-    int   last_event_severity;/* 1=hit, 2=parry, 3=perfect, 4=kill */
+    bool  saved;                 /* a save fired this tick (auto or manual) */
+    SaveReason save_reason;      /* why (for the save-flash label) */
+    Vec2  last_event_pos;        /* world-space, for camera zoom + particles */
+    int   last_event_severity;   /* 1=hit, 2=parry, 3=perfect, 4=kill */
 } CombatEffects;
 
 typedef struct World {
@@ -47,6 +50,15 @@ typedef struct World {
     Audio*         audio;          /* borrowed from main; not owned */
     CombatEffects  effects;
     bool           debug;
+
+    /* ---- save system ---- */
+    SaveData       save;           /* in-memory mirror of save.dat         */
+    uint32_t       play_time_ticks;/* total ticks this session + loaded    */
+    uint32_t       last_save_tick; /* tick of last save (for cooldown)     */
+    int            save_flash;     /* >0 = draw save indicator, counts down */
+    int            save_zone_idx;  /* -1 = not in a zone; else index into level.save_points */
+    bool           save_zone_armed;/* re-arm after leaving a zone          */
+    char           level_path[256];/* current level path (for save_capture)*/
 } World;
 
 void world_init(World* w, const char* level_path, Audio* audio);
@@ -56,5 +68,13 @@ void world_draw(World* w, Renderer* r);
 /* Spawn a fresh enemy slot; returns NULL if pool is full. Caller must
  * immediately call the type-specific init (e.g. crawler_init(e, spawn)). */
 Enemy* world_spawn_enemy(World* w);
+
+/* Force a save now (used by manual F5 + autosave triggers). Returns true
+ * if the save actually wrote. */
+bool world_save_now(World* w, SaveReason reason);
+
+/* Check if the player is overlapping any save point. Returns the index
+ * or -1 if none. */
+int  world_current_save_zone(const World* w);
 
 #endif /* TV_WORLD_H */
