@@ -1,0 +1,19 @@
+# Build artifacts
+build/
+*.o
+*.obj
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Preview outputs (kept locally, not in repo)
+*.preview.png
+
+# Local SDL2 dev headers (if extracted locally)
+sdl2-local/
+
+# Local token cache / secrets
+.token
+.env
