@@ -2,28 +2,42 @@
 #include "input.h"
 #include "render.h"
 #include "world.h"
+#include "audio.h"
+#include "scene.h"
+#include "tunables.h"
+#include "hotreload.h"
+#include "i18n.h"
 
 #include <SDL2/SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+/* ---- globals owned by main ---- */
+static Audio       g_audio;
+static HotReload   g_hotreload;
+
+static void on_file_changed(const char* path, void* user) {
+    (void)user;
+    if (strstr(path, "tunables.txt")) {
+        if (tunables_reload(&g_tunables, "tunables.txt")) {
+            fprintf(stderr, "[hotreload] tunables.txt reloaded\n");
+        }
+    } else if (strstr(path, "levels/")) {
+        fprintf(stderr, "[hotreload] level changed: %s (restart to apply)\n", path);
+        /* For the prototype we don't live-reload the level (would need to
+         * preserve player state across reload). Just log it. */
+    }
+}
+
 /* If non-zero, write a BMP of this frame index and quit. */
 static int g_screenshot_frame = -1;
 static const char* g_screenshot_path = NULL;
-
-/* If non-zero, simulate holding RIGHT every tick (for headless demo). */
 static int g_auto_walk = 0;
-
-/* If set, force-enable debug overlay for screenshots. */
 static int g_force_debug = 0;
+static int g_skip_title = 0;   /* --skip-title: jump straight to world */
 
 int main(int argc, char** argv) {
-    /* Parse args:
-     *   --shot N path  -> capture frame N to path, then quit
-     *   --auto N       -> simulate holding RIGHT for the first N ticks
-     *   --debug        -> force-enable debug overlay
-     */
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--shot") == 0 && i + 2 < argc) {
             g_screenshot_frame = atoi(argv[i+1]);
@@ -34,8 +48,14 @@ int main(int argc, char** argv) {
             i += 1;
         } else if (strcmp(argv[i], "--debug") == 0) {
             g_force_debug = 1;
+        } else if (strcmp(argv[i], "--skip-title") == 0) {
+            g_skip_title = 1;
         }
     }
+
+    /* init tunables BEFORE renderer (some code reads them at init) */
+    tunables_load_defaults(&g_tunables);
+    tunables_load_file(&g_tunables, "tunables.txt");
 
     Renderer rend;
     if (!renderer_init(&rend, WINDOW_W, WINDOW_H)) {
@@ -44,18 +64,42 @@ int main(int argc, char** argv) {
     }
     if (g_force_debug) rend.debug = true;
 
+    /* audio (optional; game runs without it) */
+    bool have_audio = audio_init(&g_audio);
+    if (!have_audio) {
+        fprintf(stderr, "[audio] init failed; running silent\n");
+    }
+
+    /* hot reload */
+    if (!hotreload_init(&g_hotreload, "tunables.txt", "levels",
+                        on_file_changed, NULL)) {
+        fprintf(stderr, "[hotreload] init failed (non-Linux?); disabled\n");
+    }
+
+    /* init SDL2 gamepad subsystem (input.c opens controllers on its own) */
+    if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) < 0) {
+        fprintf(stderr, "[gamepad] init failed: %s\n", SDL_GetError());
+    }
+
+    /* build scene stack */
+    SceneStack stack;
+    scene_stack_init(&stack, &g_audio);
+    if (g_skip_title) {
+        scene_push(&stack, &scene_world, (void*)"levels/town.txt");
+    } else {
+        scene_push(&stack, &scene_title, NULL);
+    }
+
     Input input;
     input_init(&input);
 
-    World world;
-    world_init(&world, "levels/town.txt");
-
+    /* fixed-timestep accumulator */
     const float fixed_dt = 1.0f / FIXED_HZ;
-    Uint64    perf_freq = SDL_GetPerformanceFrequency();
-    Uint64    last      = SDL_GetPerformanceCounter();
-    float     accum     = 0.0f;
-    bool      slowmo    = false;
-    int       frame_idx = 0;
+    Uint64 perf_freq = SDL_GetPerformanceFrequency();
+    Uint64 last      = SDL_GetPerformanceCounter();
+    float  accum     = 0.0f;
+    bool   slowmo    = false;
+    int    frame_idx = 0;
 
     bool running = true;
     while (running) {
@@ -70,35 +114,36 @@ int main(int argc, char** argv) {
         while (SDL_PollEvent(&e)) {
             input_handle_event(&input, &e);
         }
+        input_poll_gamepad(&input);
         if (input.pressed[BTN_QUIT]) running = false;
         if (input.pressed[BTN_DEBUG])  rend.debug  = !rend.debug;
         if (input.pressed[BTN_SLOWMO]) slowmo      = !slowmo;
 
-        /* Headless demo: force-hold RIGHT for the first N ticks so we can
-         * capture screenshots of the player walking toward the enemy.
-         * Also auto-attacks periodically once we're close. */
+        /* hot-reload poll (cheap; non-blocking) */
+        hotreload_poll(&g_hotreload);
+
+        /* headless demo auto-walk: only applies if top scene is WORLD */
         if (g_auto_walk > 0) {
             input.down[BTN_RIGHT] = true;
-            /* attack every ~30 ticks after the first 60 ticks */
             if (g_auto_walk < 240 && (g_auto_walk % 30) == 0) {
                 input.pressed[BTN_ATTACK] = true;
             }
             g_auto_walk--;
-            if (g_auto_walk == 0) {
-                input.down[BTN_RIGHT] = false;
-            }
+            if (g_auto_walk == 0) input.down[BTN_RIGHT] = false;
         }
 
+        /* ---- fixed ticks ---- */
         int ticks_this_frame = 0;
         while (accum >= fixed_dt && ticks_this_frame < 5) {
-            world_update(&world, &input);
+            scene_update(&stack, &input, fixed_dt);
             accum -= fixed_dt;
             ticks_this_frame++;
         }
+        if (stack.top < 0) running = false;   /* all scenes popped */
 
-        world_draw(&world, &rend);
+        /* ---- render ---- */
+        scene_draw(&stack, &rend);
 
-        /* screenshot capture mode (headless smoke test) */
         if (g_screenshot_frame >= 0 && frame_idx >= g_screenshot_frame) {
             int w = WINDOW_W, h = WINDOW_H;
             SDL_Surface* surf = SDL_CreateRGBSurface(0, w, h, 32,
@@ -118,6 +163,11 @@ int main(int argc, char** argv) {
         frame_idx++;
     }
 
+    /* shutdown */
+    scene_stack_shutdown(&stack);
+    input_shutdown(&input);
+    hotreload_free(&g_hotreload);
+    audio_free(&g_audio);
     renderer_free(&rend);
     return 0;
 }

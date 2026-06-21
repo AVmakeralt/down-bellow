@@ -1,0 +1,37 @@
+# The Voided - runtime tunables.
+# Edit while the game is running; the engine hot-reloads via inotify.
+# Format: key value   (# starts a comment)
+#
+# Floats use a decimal point. Integers don't.
+
+# player physics
+gravity              0.55
+move_speed           2.4
+jump_velocity       -9.5
+coyote_time          6
+jump_buffer          6
+pogo_velocity      -11.0
+
+# parry
+parry_freeze_ticks   20
+parry_perfect_window 4
+parry_stun_ticks     40
+
+# hit-stop (frame freeze on impact)
+hitstop_hit          3
+hitstop_parry        8
+hitstop_perfect     14
+hitstop_kill        20
+
+# screen shake (trauma^2 model)
+shake_max_pixels     8.0
+shake_decay          0.86
+shake_trauma_hit     0.20
+shake_trauma_parry   0.45
+shake_trauma_perfect 0.75
+
+# mindless sprint
+sprint_speed         8.0
+sprint_duration_ticks 30
+kenotita_regen       0.15
+kenotita_sprint_cost 30

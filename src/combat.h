@@ -5,17 +5,19 @@
 #include "enemy.h"
 
 /*
- * Combat resolution.
+ * Combat resolution. Drives:
+ *   - parry clash detection (player attack vs enemy attack hitboxes)
+ *   - perfect-parry window (first PARRY_PERFECT_WINDOW ticks of freeze)
+ *   - normal hit detection (player attack vs enemy body)
+ *   - enemy attack hitting player body
+ *   - hit-stop, screen shake, particle bursts, audio cues
  *
- * Each tick we check:
- *   1. Player's voidslash hitbox vs each enemy's body box. If hit and
- *      enemy isn't already in PARRY-frozen state, deal damage (unless
- *      enemy is mid-attack and the attack is parryable -> start parry).
- *   2. Player's hitbox vs enemy's attack hitbox -> start a parry clash.
- *   3. Enemy's attack hitbox vs player's body box -> player takes damage
- *      (unless player is mid-i-frames).
+ * All enemy interactions go through the vtable.
+ *
+ * Returns event flags via the World's effects struct (in world.h).
  */
 
-void combat_resolve(Player* p, AttackHitbox* p_atk, Enemy* enemies, int n);
+void combat_resolve(Player* p, AttackHitbox* p_atk, Enemy* enemies, int n,
+                    struct World* w);
 
 #endif /* TV_COMBAT_H */
