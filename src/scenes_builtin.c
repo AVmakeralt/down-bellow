@@ -51,9 +51,9 @@ static void title_draw(Scene* self, Renderer* r) {
     renderer_clear(r, 0xFF06060A);
     /* Title text would go here once we have a font. For now, draw two
      * placeholder rectangles to suggest a title layout. */
-    IRect title_bar = { WINDOW_W/2 - 200, WINDOW_H/2 - 80, 400, 60 };
+    IRect title_bar = { LOGICAL_W/2 - 100, LOGICAL_H/2 - 40, 200, 30 };
     draw_rect_screen(r, title_bar, 0xFFA42D7A, 1);
-    IRect subtitle_bar = { WINDOW_W/2 - 160, WINDOW_H/2 + 10, 320, 16 };
+    IRect subtitle_bar = { LOGICAL_W/2 - 80, LOGICAL_H/2 + 10, 160, 8 };
     /* blink the "press to start" */
     if ((st->ticks / 30) & 1) {
         draw_rect_screen(r, subtitle_bar, 0xFF88CCFF, 1);
@@ -168,8 +168,8 @@ static void intro_draw(Scene* self, Renderer* r) {
     if (n > (int)strlen(line)) n = (int)strlen(line);
     int char_w = 8;
     int total_w = (int)strlen(line) * char_w;
-    int x = WINDOW_W/2 - total_w/2;
-    int y = WINDOW_H/2;
+    int x = LOGICAL_W/2 - total_w/2;
+    int y = LOGICAL_H/2;
     for (int i = 0; i < n; i++) {
         unsigned char c = (unsigned char)line[i];
         /* hash char to a color for visual variety (placeholder until font) */
@@ -179,7 +179,7 @@ static void intro_draw(Scene* self, Renderer* r) {
         draw_rect_screen(r, rc, col, 1);
     }
     /* small child silhouette in the lower-left (placeholder) */
-    IRect child = { WINDOW_W/4, WINDOW_H - 120, 32, 48 };
+    IRect child = { LOGICAL_W/4, LOGICAL_H - 60, 32, 48 };
     draw_rect_screen(r, child, 0xFF3A3A4E, 1);
 }
 
@@ -261,7 +261,7 @@ static void world_scene_draw(Scene* self, Renderer* r) {
     if (st->world.player.hitstop < 0) {
         /* paused overlay */
         renderer_clear(r, 0x80000000);
-        IRect rc = { WINDOW_W/2 - 100, WINDOW_H/2 - 20, 200, 40 };
+        IRect rc = { LOGICAL_W/2 - 50, LOGICAL_H/2 - 10, 100, 20 };
         draw_rect_screen(r, rc, 0xFFA42D7A, 1);
     }
 }

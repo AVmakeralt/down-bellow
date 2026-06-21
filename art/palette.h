@@ -33,21 +33,21 @@
  */
 static const uint32_t PALETTE[16] = {
     0x00000000,  /* 0  transparent                          */
-    0xFF140A0A,  /* 1  void black      (cloak outline)      */
-    0xFF4E3A3A,  /* 2  cloak grey      (main body)          */
-    0xFF725A5A,  /* 3  cloak highlight (rim light)          */
-    0xFF2E2020,  /* 4  cloak shadow / dirt                  */
-    0xFFF0E0E0,  /* 5  eye glow white                       */
-    0xFFFFCC88,  /* 6  eye glow cyan                        */
-    0xFF54143A,  /* 7  void purple                          */
-    0xFFA42D7A,  /* 8  void purple bright                   */
-    0xFF30262A,  /* 9  stone dark                           */
-    0xFF54464A,  /* a  stone                                */
-    0xFF74666A,  /* b  stone light                          */
-    0xFF2A4A3A,  /* c  moss                                 */
-    0xFFB4A8A8,  /* d  fog                                  */
-    0xFF2020A8,  /* e  blood red                            */
-    0xFFFFB8C8,  /* f  voidscrew glow                       */
+    0xFF12060A,  /* 1  void black      (deeper, bluer)      */
+    0xFF332B40,  /* 2  cloak grey      (cool purple-grey)   */
+    0xFF55406A,  /* 3  cloak highlight (purple rim light)  */
+    0xFF1F0E26,  /* 4  cloak shadow / dirt (void-tinted)    */
+    0xFFEAE0F0,  /* 5  eye glow white  (cool, not warm)     */
+    0xFF88E0FF,  /* 6  eye glow CYAN   (actual cyan)        */
+    0xFF2A0A3A,  /* 7  void purple     (darker, ambience)   */
+    0xFFC030FF,  /* 8  void purple BRIGHT (signature)       */
+    0xFF181018,  /* 9  stone dark                            */
+    0xFF332030,  /* a  stone (purple-tinted, not gray)       */
+    0xFF553D55,  /* b  stone light                           */
+    0xFF1F3A2A,  /* c  moss (deeper)                         */
+    0xFFB0A0C0,  /* d  fog (cool, not warm)                  */
+    0xFFFF2A4A,  /* e  blood red (punchier)                  */
+    0xFFFFFFEE,  /* f  voidscrew glow (true white-violet)    */
 };
 
 /* Convert a sprite character into a palette index (0..15). */

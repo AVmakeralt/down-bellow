@@ -212,6 +212,17 @@ static void crawler_draw(Enemy* e, Renderer* r, const Camera* c) {
     int flip = (e->facing < 0) ? 1 : 0;
     draw_sprite_screen(r, id, s.x, s.y, flip);
 
+    /* pulsing eye glow: crawler's eye is at sprite y=9..11, x=12..20.
+     * Pulses faster when in aggro/attack state. */
+    {
+        float freq = (e->state == ES_WINDUP || e->state == ES_ATTACK) ? 0.20f : 0.08f;
+        float pulse = 0.5f + 0.5f * sinf(e->anim_timer * freq);
+        Uint8 a = (Uint8)(60 + 120 * pulse);
+        IRect eye = { s.x + 12, s.y + 9, 9, 4 };
+        Color eye_col = 0x00C030FF | ((Uint32)a << 24);   /* signature void purple */
+        draw_rect_screen(r, eye, eye_col, 1);
+    }
+
     /* hit flash */
     if (e->hit_flash > 0) {
         IRect rc = { s.x, s.y, CRAWLER_SPRITE_W, CRAWLER_SPRITE_H };

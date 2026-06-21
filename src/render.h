@@ -46,7 +46,14 @@ typedef struct {
     SpriteAtlas   atlas;
     int           window_w;
     int           window_h;
+    int           logical_w;       /* internal render resolution (e.g. 480) */
+    int           logical_h;       /* (e.g. 270) — sprite stage space        */
     bool          debug;
+
+    /* Pre-baked post textures (built once in renderer_init) */
+    SDL_Texture*  void_glow;       /* radial purple glow, additive blend  */
+    SDL_Texture*  vignette;        /* dark-edge overlay, multiply blend   */
+    SDL_Texture*  grain;           /* 64x64 noise tile, screen blend       */
 } Renderer;
 
 bool renderer_init(Renderer* r, int window_w, int window_h);
@@ -65,5 +72,15 @@ void draw_sprite_screen(Renderer* r, SpriteID id, int sx, int sy, int flip);
 
 /* Draw a colored rect in screen-space (for debug hitboxes, etc.) */
 void draw_rect_screen(Renderer* r, IRect rc, uint32_t color_abgr, int filled);
+
+/* Draw the pre-baked void glow at (sx,sy) with given radius (screen-space).
+ * Uses additive blending so it lights up whatever is underneath. */
+void draw_void_glow(Renderer* r, int sx, int sy, int radius_px, uint8_t alpha);
+
+/* Draw the pre-baked vignette overlay (fullscreen, multiply blend). */
+void draw_vignette(Renderer* r);
+
+/* Draw the pre-baked film grain (fullscreen, screen blend, animated by tick). */
+void draw_grain(Renderer* r, int tick);
 
 #endif /* TV_RENDER_H */

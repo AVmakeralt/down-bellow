@@ -21,7 +21,7 @@ void world_init(World* w, const char* level_path, Audio* audio) {
         crawler_init(e, w->level.enemy_spawns[i]);
         w->enemy_count++;
     }
-    camera_init(&w->camera, WINDOW_W, WINDOW_H);
+    camera_init(&w->camera, LOGICAL_W, LOGICAL_H);
     particles_init(&w->particles);
     tentacles_init(&w->tentacles);
     w->audio = audio;
@@ -180,20 +180,19 @@ static void draw_tiles(World* w, Renderer* r) {
     int tx1 = (int)((c->pos.x + c->w) / TILE_SIZE) + 1;
     int ty1 = (int)((c->pos.y + c->h) / TILE_SIZE) + 1;
 
-    /* first pass: bgwall (parallax, drawn slightly offset) */
+    /* bgwall tiles (parallax 0.6x) — faint background detail */
     for (int ty = ty0; ty <= ty1; ty++) {
         for (int tx = tx0; tx <= tx1; tx++) {
             if (tx < 0 || ty < 0 || tx >= w->level.w || ty >= w->level.h) continue;
             char t = w->level.tiles[ty][tx];
             if (t != '.') continue;
-            /* parallax: bgwall scrolls at 0.6x camera speed for depth */
             int sx = (int)(tx * TILE_SIZE - c->pos.x * 0.6f + c->shake_x);
             int sy = (int)(ty * TILE_SIZE - c->pos.y * 0.6f + c->shake_y);
             draw_sprite_screen(r, SPRITE_TILE_BGWALL, sx, sy, 0);
         }
     }
 
-    /* second pass: solid tiles */
+    /* solid tiles (parallax 1.0x = foreground) */
     for (int ty = ty0; ty <= ty1; ty++) {
         for (int tx = tx0; tx <= tx1; tx++) {
             if (tx < 0 || ty < 0 || tx >= w->level.w || ty >= w->level.h) continue;
@@ -229,12 +228,32 @@ static void draw_player(World* w, Renderer* r) {
         case PS_FALL:    id = SPRITE_PLAYER_JUMP;   break;
         case PS_ATTACK:  id = SPRITE_PLAYER_ATTACK; break;
         case PS_POGO:    id = SPRITE_PLAYER_POGO;   break;
-        case PS_SPRINT:  id = SPRITE_PLAYER_ATTACK; break;  /* TODO: own sprite */
+        case PS_SPRINT:  id = SPRITE_PLAYER_ATTACK; break;
         case PS_HURT:    id = SPRITE_PLAYER_IDLE;   break;
         default:         id = SPRITE_PLAYER_IDLE;
     }
     int flip = (p->facing < 0) ? 1 : 0;
-    draw_sprite_screen(r, id, s.x, s.y, flip);
+
+    /* idle breathing: subtle 1px vertical squash on a 60-tick cycle */
+    int breath_offset = 0;
+    if (p->state == PS_IDLE) {
+        int phase = p->anim_timer % 60;
+        if (phase < 30) breath_offset = 0;
+        else            breath_offset = 1;   /* shift down 1px = "exhale" */
+    }
+
+    draw_sprite_screen(r, id, s.x, s.y + breath_offset, flip);
+
+    /* eye pulse: cyan glow over the eyes, sine-modulated.
+     * Eyes are at sprite y=10..13, x=12..20 (player_sprite.h).
+     * Pulse every ~90 ticks. */
+    {
+        float pulse = 0.5f + 0.5f * sinf(p->anim_timer * 0.07f);
+        Uint8 a = (Uint8)(50 + 90 * pulse);
+        IRect eye_glow = { s.x + 12, s.y + 10 + breath_offset, 8, 4 };
+        Color eye_col = 0x0088E0FF | ((Uint32)a << 24);
+        draw_rect_screen(r, eye_glow, eye_col, 1);
+    }
 
     /* hurt flash */
     if (p->hurt_timer > 0 && (p->hurt_timer & 3) == 0) {
@@ -293,17 +312,144 @@ static void draw_debug(World* w, Renderer* r) {
     /* (text rendering would go here once we have a font; for proto, skip) */
 }
 
-void world_draw(World* w, Renderer* r) {
-    /* Background: ash-foot town dusk. Darker when player is mid-sprint
-     * (void absorption darkens the world). */
-    Uint8 bg_r = 0x14, bg_g = 0x0C, bg_b = 0x12;
-    if (w->player.state == PS_SPRINT) {
-        bg_r = 0x08; bg_g = 0x06; bg_b = 0x0A;
+/* ---- vertical void gradient -------------------------------------- *
+ * Replaces flat black background. Deepens from violet-black at top to
+ * pure void at bottom. Sells "depth" without any art.
+ */
+static void draw_void_gradient(World* w, Renderer* r) {
+    int h = r->logical_h;
+    int w_ = r->logical_w;
+    /* darker when sprinting (void absorption) */
+    float darken = (w->player.state == PS_SPRINT) ? 0.5f : 1.0f;
+    /* vertical gradient: top = violet-black, bottom = pure void */
+    for (int y = 0; y < h; y += 2) {
+        float t = (float)y / (float)h;     /* 0 top, 1 bottom */
+        /* top color: 0x1A0E26 (cool void purple-black)
+         * bottom color: 0x050208 (deep void) */
+        Uint8 r_top = (Uint8)(0x1A * darken);
+        Uint8 g_top = (Uint8)(0x0E * darken);
+        Uint8 b_top = (Uint8)(0x26 * darken);
+        Uint8 r_bot = (Uint8)(0x05 * darken);
+        Uint8 g_bot = (Uint8)(0x02 * darken);
+        Uint8 b_bot = (Uint8)(0x08 * darken);
+        Uint8 rr = (Uint8)(r_top + (r_bot - r_top) * t);
+        Uint8 gg = (Uint8)(g_top + (g_bot - g_top) * t);
+        Uint8 bb = (Uint8)(b_top + (b_bot - b_top) * t);
+        IRect rc = { 0, y, w_, 2 };
+        draw_rect_screen(r, rc, 0xFF000000 | ((Uint32)bb << 16) | ((Uint32)gg << 8) | rr, 1);
     }
-    renderer_clear(r, 0xFF000000 | (bg_b << 16) | (bg_g << 8) | bg_r);
+}
 
+/* ---- far parallax: distant cathedral silhouettes ----------------- *
+ * Pre-baked into the renderer? For now, draw 3 faint arch shapes that
+ * scroll at 0.05x camera speed. Pure black with low alpha.
+ */
+static void draw_far_parallax(World* w, Renderer* r) {
+    Camera* c = &w->camera;
+    /* three arches spaced every 600 world-px, scrolling at 0.05x */
+    float scroll = c->pos.x * 0.05f;
+    for (int i = 0; i < 6; i++) {
+        float world_x = i * 600.0f - scroll;
+        int sx = (int)world_x;
+        /* only draw if on-screen */
+        if (sx < -120 || sx > r->logical_w + 120) continue;
+        int base_y = r->logical_h - 80;
+        /* draw a faint arch: rectangle base + arched top */
+        Color faint = 0x50100612;   /* deep void, low alpha */
+        IRect base = { sx, base_y, 80, 80 };
+        draw_rect_screen(r, base, faint, 1);
+        IRect top  = { sx + 8, base_y - 24, 64, 24 };
+        draw_rect_screen(r, top, faint, 1);
+        IRect spire = { sx + 32, base_y - 60, 16, 36 };
+        draw_rect_screen(r, spire, faint, 1);
+    }
+}
+
+/* ---- mid parallax: bgwall tiles at 0.4x -------------------------- */
+static void draw_mid_parallax(World* w, Renderer* r) {
+    Camera* c = &w->camera;
+    int tx0 = (int)(c->pos.x * 0.4f / TILE_SIZE) - 1;
+    int tx1 = (int)((c->pos.x * 0.4f + c->w) / TILE_SIZE) + 1;
+    int ty0 = (int)(c->pos.y * 0.4f / TILE_SIZE) - 1;
+    int ty1 = (int)((c->pos.y * 0.4f + c->h) / TILE_SIZE) + 1;
+    for (int ty = ty0; ty <= ty1; ty++) {
+        for (int tx = tx0; tx <= tx1; tx++) {
+            /* background tiles don't map to level data — just draw a faint
+             * bgwall at every grid cell for atmosphere. */
+            int sx = (int)(tx * TILE_SIZE - c->pos.x * 0.4f + c->shake_x);
+            int sy = (int)(ty * TILE_SIZE - c->pos.y * 0.4f + c->shake_y);
+            /* dim it: draw with low alpha by drawing a translucent dark rect over */
+            draw_sprite_screen(r, SPRITE_TILE_BGWALL, sx, sy, 0);
+        }
+    }
+}
+
+/* ---- ambient void motes (slow upward drift) --------------------- *
+ * Cheap: 80 motes scattered across the screen with sinusoidal drift.
+ */
+static void draw_void_motes(World* w, Renderer* r, int tick) {
+    Camera* c = &w->camera;
+    (void)c;
+    for (int i = 0; i < 40; i++) {
+        /* hash-based deterministic position per mote */
+        int seed_x = i * 73;
+        int seed_y = i * 131;
+        float base_x = (float)((seed_x * 17) % r->logical_w);
+        float base_y = (float)((seed_y * 11) % r->logical_h);
+        /* drift upward, wrap */
+        float y = base_y - (tick * 0.3f + i * 0.7f);
+        y = fmodf(y + r->logical_h * 2, r->logical_h);
+        /* sine sway */
+        float x = base_x + sinf(tick * 0.02f + i) * 8.0f;
+        /* twinkle alpha */
+        Uint8 a = (Uint8)(40 + 40 * sinf(tick * 0.05f + i * 0.3f));
+        IRect rc = { (int)x, (int)y, 1, 1 };
+        Color col = 0x00C030FF | ((Uint32)a << 24);   /* signature purple */
+        draw_rect_screen(r, rc, col, 1);
+    }
+}
+
+void world_draw(World* w, Renderer* r) {
+    /* ---- Layer 1: vertical void gradient (replaces flat clear) ---- */
+    draw_void_gradient(w, r);
+
+    /* ---- Layer 2: far parallax (cathedral silhouettes, 0.05x) ---- */
+    draw_far_parallax(w, r);
+
+    /* ---- Layer 3: mid parallax (bgwall tiles, 0.4x) -------------- */
+    draw_mid_parallax(w, r);
+
+    /* ---- Layer 4: ambient void motes (in front of mid parallax) - */
+    /* use player anim_timer as the global tick */
+    draw_void_motes(w, r, w->player.anim_timer);
+
+    /* ---- Layer 5: foreground tiles + enemies + player ----------- */
     draw_tiles(w, r);
     draw_enemies(w, r);
+
+    /* ---- Layer 6: void glow under player (signature look) ------ *
+     * Intensity ramps up during combat/sprint. */
+    {
+        Player* p = &w->player;
+        Camera* c = &w->camera;
+        Vec2 pc = vec2(p->pos.x + PLAYER_W * 0.5f,
+                       p->pos.y + PLAYER_H * 0.5f);
+        IVec2 ps = camera_world_to_screen(c, pc.x, pc.y);
+        /* base glow radius ~24px (half sprite), grows during sprint/attack */
+        int radius = 24;
+        Uint8 alpha = 90;
+        if (p->state == PS_SPRINT) {
+            radius = 48;
+            alpha = 180;
+        } else if (p->state == PS_ATTACK || p->state == PS_POGO) {
+            radius = 36;
+            alpha = 160;
+        } else if (p->hurt_timer > 0) {
+            radius = 32;
+            alpha = 200;   /* angry red-purple when hurt */
+        }
+        draw_void_glow(r, ps.x, ps.y, radius, alpha);
+    }
 
     /* tentacles behind player when sprinting */
     if (w->player.state == PS_SPRINT) {
@@ -314,6 +460,10 @@ void world_draw(World* w, Renderer* r) {
 
     /* particles drawn on top */
     particles_draw(&w->particles, r, &w->camera);
+
+    /* ---- Layer 7: post-processing (vignette + grain) ----------- */
+    draw_vignette(r);
+    draw_grain(r, w->player.anim_timer);
 
     draw_debug(w, r);
 }

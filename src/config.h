@@ -20,6 +20,11 @@
 /* --- window / render --------------------------------------------- */
 #define WINDOW_W           1280
 #define WINDOW_H           720
+/* Internal render resolution. All draw calls happen in this space; SDL
+ * upscales to WINDOW_W x WINDOW_H with nearest-neighbor. Lower = chunkier
+ * pixels + bigger sprites relative to screen. 480x270 = 16:9 at 1/8 area. */
+#define LOGICAL_W          480
+#define LOGICAL_H          270
 #define RENDER_SCALE       1
 #define TARGET_FPS         60
 #define FIXED_HZ           60
