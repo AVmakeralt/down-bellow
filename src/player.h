@@ -69,6 +69,10 @@ typedef struct {
     int  hurt_timer;     /* i-frame countdown */
     int  hp;
 
+    /* death: when hp <= 0, player is dead. World handles respawn-from-save. */
+    bool dead;
+    int  death_timer;    /* brief death animation before respawn */
+
     /* kenotita: void resource. Spent on manual sprint, refilled on
      * perfect parry + slow passive regen. */
     float kenotita;

@@ -1,240 +1,191 @@
 #ifndef ART_PLAYER_SPRITE_H
 #define ART_PLAYER_SPRITE_H
 
+#include "../src/canvas.h"
+
 /*
- * The Voided (player) - 32x32 grid sprite, hand-authored.
+ * The Voided (player) — procedural 364x364 sprite, composed from C drawing
+ * primitives. No more 32x32 grid strings; this gives us real detail (cloak
+ * folds, glowing eyes, horn curve) at any display scale.
  *
- * Palette map for this sprite:
- *   1 = void black      (outline, legs)
- *   2 = cloak grey      (main body)
- *   3 = cloak highlight (rim light)
- *   5 = eye glow white
- *   6 = eye glow cyan
- *   f = voidscrew glow  (only in attack/pogo frames)
+ * Palette (mirrors art/palette.h):
+ *   VOID_BLACK     0xFF12060A
+ *   CLOAK_GREY     0xFF332B40
+ *   CLOAK_HI       0xFF55406A
+ *   CLOAK_SHADOW   0xFF1F0E26
+ *   EYE_WHITE      0xFFEAE0F0
+ *   EYE_CYAN       0xFF88E0FF
+ *   VOID_PURPLE    0xFF2A0A3A
+ *   VOID_BRIGHT    0xFFC030FF
+ *   VOIDSCREW_GLOW 0xFFFFFFEE
+ *
+ * Each frame is a function: void player_<frame>_draw(Canvas* c).
+ * The canvas is 364x364; the character is roughly centered and stands
+ * ~260px tall (from y=60 hood top to y=320 feet).
  *
  * Frames: idle, walk1, walk2, jump, attack, pogo
- *
- * To tweak: edit the strings directly. Keep every line exactly 32 chars.
- * The build will assert this at compile time (see art_asserts.h).
  */
 
-#define PLAYER_W 32
-#define PLAYER_H 32
+#define PV_VOID_BLACK     0xFF12060A
+#define PV_CLOAK_GREY     0xFF332B40
+#define PV_CLOAK_HI       0xFF55406A
+#define PV_CLOAK_SHADOW   0xFF1F0E26
+#define PV_EYE_WHITE      0xFFEAE0F0
+#define PV_EYE_CYAN       0xFF88E0FF
+#define PV_VOID_PURPLE    0xFF2A0A3A
+#define PV_VOID_BRIGHT    0xFFC030FF
+#define PV_VOIDSCREW_GLOW 0xFFFFFFEE
 
-/* --- idle ---------------------------------------------------------- */
-static const char* player_idle[PLAYER_H] = {
-    "................................",  /*  0 */
-    "................................",  /*  1 */
-    "................................",  /*  2 */
-    "...............11...............",  /*  3 horn tip */
-    "..............1331..............",  /*  4 */
-    ".............13331..............",  /*  5 */
-    "............1333331.............",  /*  6 disfigured horn */
-    "............1222221.............",  /*  7 horn root / hood top */
-    "............2222222.............",  /*  8 hood */
-    "............2222222.............",  /*  9 */
-    "............2555552.............",  /* 10 eyes top */
-    "............2566652.............",  /* 11 eyes bright */
-    "............2555552.............",  /* 12 eyes bottom */
-    "............2222222.............",  /* 13 */
-    "...........22222222.............",  /* 14 chin/hood rim */
-    "..........2233333322............",  /* 15 hood rim highlight */
-    "..........2222222222............",  /* 16 shoulders */
-    "..........2222222222............",  /* 17 */
-    "..........2222222222............",  /* 18 */
-    "..........2222222222............",  /* 19 */
-    "..........223....322............",  /* 20 hand nubs */
-    "..........223....322............",  /* 21 */
-    "..........222....222............",  /* 22 legs split */
-    "..........222....222............",  /* 23 */
-    "..........222....222............",  /* 24 */
-    "..........222....222............",  /* 25 */
-    "..........222....222............",  /* 26 */
-    "..........111....111............",  /* 27 legs (black) */
-    "..........111....111............",  /* 28 */
-    "..........111....111............",  /* 29 */
-    "................................",  /* 30 */
-    "................................",  /* 31 */
-};
+/* shared body-drawing helper: cloak, hood, horn, eyes.
+ * legs_y = top of the legs (varies by frame for breathing/walk)
+ * arm_offset = horizontal offset for hands (varies by frame) */
+static inline void player_draw_body(Canvas* c, int legs_y, int arm_offset, bool glow_eyes) {
+    /* ---- shadow under feet ---- */
+    canvas_fill_ellipse(c, 182, 330, 55, 10, 0x60000000);
 
-/* --- walk1 (legs splay outward) ----------------------------------- */
-static const char* player_walk1[PLAYER_H] = {
-    "................................",  /*  0 */
-    "................................",  /*  1 */
-    "................................",  /*  2 */
-    "...............11...............",  /*  3 */
-    "..............1331..............",  /*  4 */
-    ".............13331..............",  /*  5 */
-    "............1333331.............",  /*  6 */
-    "............1222221.............",  /*  7 */
-    "............2222222.............",  /*  8 */
-    "............2222222.............",  /*  9 */
-    "............2555552.............",  /* 10 */
-    "............2566652.............",  /* 11 */
-    "............2555552.............",  /* 12 */
-    "............2222222.............",  /* 13 */
-    "...........22222222.............",  /* 14 */
-    "..........2233333322............",  /* 15 */
-    "..........2222222222............",  /* 16 */
-    "..........2222222222............",  /* 17 */
-    "..........2222222222............",  /* 18 */
-    "..........2222222222............",  /* 19 */
-    "..........223....322............",  /* 20 */
-    "..........223....322............",  /* 21 */
-    "..........222....222............",  /* 22 */
-    ".........222......222...........",  /* 23 leg splay */
-    ".........222......222...........",  /* 24 */
-    ".........222......222...........",  /* 25 */
-    "..........222....222............",  /* 26 */
-    "..........111....111............",  /* 27 */
-    "..........111....111............",  /* 28 */
-    "..........111....111............",  /* 29 */
-    "................................",  /* 30 */
-    "................................",  /* 31 */
-};
+    /* ---- cloak body: tapered trapezoid (narrow top, wide bottom) ---- *
+     * Draw the cloak as a filled trapezoid using two triangles, then overlay
+     * a vertical gradient clipped to the same shape. */
+    int cloak_top_x0 = 135, cloak_top_x1 = 229;   /* top corners  */
+    int cloak_bot_x0 = 115, cloak_bot_x1 = 249;   /* bottom corners (wider) */
+    int cloak_top_y = 110;
+    int cloak_bot_y = legs_y + 60;
+    /* fill trapezoid with cloak color first */
+    canvas_fill_triangle(c, cloak_top_x0, cloak_top_y,
+                            cloak_bot_x0, cloak_bot_y,
+                            cloak_bot_x1, cloak_bot_y, PV_CLOAK_GREY);
+    canvas_fill_triangle(c, cloak_top_x0, cloak_top_y,
+                            cloak_top_x1, cloak_top_y,
+                            cloak_bot_x1, cloak_bot_y, PV_CLOAK_GREY);
+    /* overlay gradient (semi-transparent so it tints the cloak) */
+    canvas_fill_triangle(c, cloak_top_x0, cloak_top_y,
+                            cloak_bot_x0, cloak_bot_y,
+                            cloak_bot_x1, cloak_bot_y, 0xC055406A);
+    canvas_fill_triangle(c, cloak_top_x0, cloak_top_y,
+                            cloak_top_x1, cloak_top_y,
+                            cloak_bot_x1, cloak_bot_y, 0xC055406A);
+    /* bottom shadow gradient */
+    canvas_fill_ellipse(c, 182, cloak_bot_y, 67, 20, PV_CLOAK_SHADOW);
 
-/* --- walk2 (legs splay the other way) ----------------------------- */
-static const char* player_walk2[PLAYER_H] = {
-    "................................",  /*  0 */
-    "................................",  /*  1 */
-    "................................",  /*  2 */
-    "...............11...............",  /*  3 */
-    "..............1331..............",  /*  4 */
-    ".............13331..............",  /*  5 */
-    "............1333331.............",  /*  6 */
-    "............1222221.............",  /*  7 */
-    "............2222222.............",  /*  8 */
-    "............2222222.............",  /*  9 */
-    "............2555552.............",  /* 10 */
-    "............2566652.............",  /* 11 */
-    "............2555552.............",  /* 12 */
-    "............2222222.............",  /* 13 */
-    "...........22222222.............",  /* 14 */
-    "..........2233333322............",  /* 15 */
-    "..........2222222222............",  /* 16 */
-    "..........2222222222............",  /* 17 */
-    "..........2222222222............",  /* 18 */
-    "..........2222222222............",  /* 19 */
-    "..........223....322............",  /* 20 */
-    "..........223....322............",  /* 21 */
-    "..........222....222............",  /* 22 */
-    "..........222....222............",  /* 23 */
-    "..........222....222............",  /* 24 */
-    "..........222....222............",  /* 25 */
-    "...........22222222.............",  /* 26 */
-    "..........111....111............",  /* 27 */
-    "..........111....111............",  /* 28 */
-    "..........111....111............",  /* 29 */
-    "................................",  /* 30 */
-    "................................",  /* 31 */
-};
+    /* ---- cloak rim light (bright left edge — void aura catching light) ---- */
+    canvas_draw_line(c, cloak_top_x0, cloak_top_y + 5,
+                     cloak_bot_x0, cloak_bot_y - 5, 4, PV_CLOAK_HI);
+    canvas_draw_line(c, cloak_top_x0 + 1, cloak_top_y + 5,
+                     cloak_bot_x0 + 1, cloak_bot_y - 5, 2, 0xFF8868A0);
 
-/* --- jump (legs tucked, arms out) --------------------------------- */
-static const char* player_jump[PLAYER_H] = {
-    "................................",  /*  0 */
-    "................................",  /*  1 */
-    "................................",  /*  2 */
-    "...............11...............",  /*  3 */
-    "..............1331..............",  /*  4 */
-    ".............13331..............",  /*  5 */
-    "............1333331.............",  /*  6 */
-    "............1222221.............",  /*  7 */
-    "............2222222.............",  /*  8 */
-    "............2222222.............",  /*  9 */
-    "............2555552.............",  /* 10 */
-    "............2566652.............",  /* 11 */
-    "............2555552.............",  /* 12 */
-    "............2222222.............",  /* 13 */
-    "...........22222222.............",  /* 14 */
-    "..........2233333322............",  /* 15 */
-    ".........222222222222...........",  /* 16 arms out */
-    "........22222222222222..........",  /* 17 */
-    ".........222222222222...........",  /* 18 */
-    "..........2222222222............",  /* 19 */
-    "..........223....322............",  /* 20 */
-    "..........223....322............",  /* 21 */
-    "..........2222222222............",  /* 22 legs tucked */
-    "..........2222222222............",  /* 23 */
-    "...........22222222.............",  /* 24 */
-    "............111111..............",  /* 25 */
-    "............111111..............",  /* 26 */
-    ".............1111...............",  /* 27 */
-    ".............1111...............",  /* 28 */
-    "................................",  /* 29 */
-    "................................",  /* 30 */
-    "................................",  /* 31 */
-};
+    /* ---- hood (large pointed ellipse on top) ---- */
+    canvas_fill_ellipse(c, 182, 95, 68, 60, PV_CLOAK_GREY);
+    /* hood highlight (top-left catches light) */
+    canvas_fill_ellipse(c, 165, 80, 30, 25, PV_CLOAK_HI);
+    /* hood inner shadow (face cavity opening) */
+    canvas_fill_ellipse(c, 182, 105, 40, 32, PV_VOID_BLACK);
 
-/* --- attack (voidslash horizontal, voidscrew extended) ----------- */
-static const char* player_attack[PLAYER_H] = {
-    "................................",  /*  0 */
-    "................................",  /*  1 */
-    "................................",  /*  2 */
-    "...............11...............",  /*  3 */
-    "..............1331..............",  /*  4 */
-    ".............13331..............",  /*  5 */
-    "............1333331.............",  /*  6 */
-    "............1222221.............",  /*  7 */
-    "............2222222.............",  /*  8 */
-    "............2222222.............",  /*  9 */
-    "............2555552.............",  /* 10 */
-    "............2566652.............",  /* 11 */
-    "............2555552.............",  /* 12 */
-    "............2222222.............",  /* 13 */
-    "...........22222222.............",  /* 14 */
-    "..........2233333322............",  /* 15 */
-    ".........222222222222...........",  /* 16 */
-    "........22222222222222..........",  /* 17 */
-    ".......2222233fffff2222.........",  /* 18 voidscrew extended */
-    "........222233fff2222...........",  /* 19 blade trail */
-    ".........2233fffff22............",  /* 20 */
-    "..........223fff322.............",  /* 21 */
-    "..........222....222............",  /* 22 */
-    "..........222....222............",  /* 23 */
-    "..........222....222............",  /* 24 */
-    "..........222....222............",  /* 25 */
-    "..........222....222............",  /* 26 */
-    "..........111....111............",  /* 27 */
-    "..........111....111............",  /* 28 */
-    "..........111....111............",  /* 29 */
-    "................................",  /* 30 */
-    "................................",  /* 31 */
-};
+    /* ---- horn (disfigured, curving up-right from hood) ---- */
+    canvas_draw_line(c, 205, 65, 240, 25, 10, PV_CLOAK_HI);
+    canvas_draw_line(c, 240, 25, 258, 15, 7, PV_CLOAK_HI);
+    canvas_fill_circle(c, 205, 65, 6, PV_CLOAK_HI);
+    canvas_fill_circle(c, 258, 15, 5, PV_CLOAK_HI);
+    /* horn tip void glow */
+    canvas_fill_radial_glow(c, 260, 13, 12, PV_VOID_BRIGHT, 200);
 
-/* --- pogo (downward voidslash, legs up) -------------------------- */
-static const char* player_pogo[PLAYER_H] = {
-    "................................",  /*  0 */
-    "................................",  /*  1 */
-    "................................",  /*  2 */
-    "...............11...............",  /*  3 */
-    "..............1331..............",  /*  4 */
-    ".............13331..............",  /*  5 */
-    "............1333331.............",  /*  6 */
-    "............1222221.............",  /*  7 */
-    "............2222222.............",  /*  8 */
-    "............2222222.............",  /*  9 */
-    "............2555552.............",  /* 10 */
-    "............2566652.............",  /* 11 */
-    "............2555552.............",  /* 12 */
-    "............2222222.............",  /* 13 */
-    "...........22222222.............",  /* 14 */
-    "..........2233333322............",  /* 15 */
-    ".........222222222222...........",  /* 16 legs splayed up */
-    "........22222222222222..........",  /* 17 */
-    ".........222222222222...........",  /* 18 */
-    "..........2222222222............",  /* 19 */
-    "............222222..............",  /* 20 */
-    "............222222..............",  /* 21 */
-    "............22ff22..............",  /* 22 blade tip emerging */
-    "............2ffff2..............",  /* 23 */
-    "............2ffff2..............",  /* 24 */
-    "............2ffff2..............",  /* 25 */
-    ".............ffff...............",  /* 26 */
-    ".............ffff...............",  /* 27 */
-    ".............1111...............",  /* 28 */
-    "..............11................",  /* 29 */
-    "................................",  /* 30 */
-    "................................",  /* 31 */
-};
+    /* ---- eyes (two glowing cyan ovals deep in the hood) ---- */
+    if (glow_eyes) {
+        /* large outer glow */
+        canvas_fill_radial_glow(c, 168, 100, 22, PV_EYE_CYAN, 180);
+        canvas_fill_radial_glow(c, 196, 100, 22, PV_EYE_CYAN, 180);
+        /* bright white core */
+        canvas_fill_ellipse(c, 168, 100, 7, 9, PV_EYE_WHITE);
+        canvas_fill_ellipse(c, 196, 100, 7, 9, PV_EYE_WHITE);
+        /* cyan center */
+        canvas_fill_ellipse(c, 168, 100, 4, 6, PV_EYE_CYAN);
+        canvas_fill_ellipse(c, 196, 100, 4, 6, PV_EYE_CYAN);
+    } else {
+        canvas_fill_ellipse(c, 168, 100, 6, 8, PV_CLOAK_SHADOW);
+        canvas_fill_ellipse(c, 196, 100, 6, 8, PV_CLOAK_SHADOW);
+    }
+
+    /* ---- hand nubs (small rounded shapes on either side) ---- */
+    canvas_fill_circle(c, 105 + arm_offset, 195, 12, PV_CLOAK_GREY);
+    canvas_fill_circle(c, 259 - arm_offset, 195, 12, PV_CLOAK_GREY);
+    canvas_fill_circle(c, 105 + arm_offset, 195, 7, PV_CLOAK_HI);
+    canvas_fill_circle(c, 259 - arm_offset, 195, 7, PV_CLOAK_HI);
+
+    /* ---- legs (two stubby pillars from legs_y down) ---- */
+    canvas_fill_rect_rounded(c, 135, legs_y, 38, 50, 8, PV_CLOAK_GREY);
+    canvas_fill_rect_rounded(c, 191, legs_y, 38, 50, 8, PV_CLOAK_GREY);
+    /* feet (void black) */
+    canvas_fill_rect_rounded(c, 133, legs_y + 38, 42, 14, 6, PV_VOID_BLACK);
+    canvas_fill_rect_rounded(c, 189, legs_y + 38, 42, 14, 6, PV_VOID_BLACK);
+
+    /* ---- ambient void wisp curling off the back of the hood ---- */
+    canvas_draw_line(c, 125, 85, 100, 65, 5, 0xA02A0A3A);
+    canvas_draw_line(c, 100, 65, 115, 45, 4, 0x802A0A3A);
+    canvas_fill_radial_glow(c, 115, 45, 8, PV_VOID_BRIGHT, 100);
+}
+
+/* ---- idle: standing, slight breathing (legs straight) ---- */
+static inline void player_idle_draw(Canvas* c) {
+    canvas_clear(c, 0);
+    player_draw_body(c, /*legs_y=*/240, /*arm_offset=*/0, /*glow_eyes=*/true);
+}
+
+/* ---- walk1: legs splayed (left forward, right back) ---- */
+static inline void player_walk1_draw(Canvas* c) {
+    canvas_clear(c, 0);
+    /* shift the right leg forward, left leg back */
+    player_draw_body(c, /*legs_y=*/240, /*arm_offset=*/4, /*glow_eyes=*/true);
+    /* overlay: move right leg forward */
+    canvas_fill_rect_rounded(c, 130, 240, 40, 50, 8, PV_CLOAK_GREY);
+    canvas_fill_rect_rounded(c, 194, 240, 40, 50, 8, PV_CLOAK_GREY);
+    /* re-draw feet offset */
+    canvas_fill_rect_rounded(c, 110, 280, 44, 14, 6, PV_VOID_BLACK);  /* left foot back */
+    canvas_fill_rect_rounded(c, 210, 280, 44, 14, 6, PV_VOID_BLACK);  /* right foot fwd */
+}
+
+/* ---- walk2: legs splayed opposite ---- */
+static inline void player_walk2_draw(Canvas* c) {
+    canvas_clear(c, 0);
+    player_draw_body(c, /*legs_y=*/240, /*arm_offset=*/-4, /*glow_eyes=*/true);
+    canvas_fill_rect_rounded(c, 130, 240, 40, 50, 8, PV_CLOAK_GREY);
+    canvas_fill_rect_rounded(c, 194, 240, 40, 50, 8, PV_CLOAK_GREY);
+    canvas_fill_rect_rounded(c, 116, 280, 44, 14, 6, PV_VOID_BLACK);
+    canvas_fill_rect_rounded(c, 204, 280, 44, 14, 6, PV_VOID_BLACK);
+}
+
+/* ---- jump: legs tucked up, arms out ---- */
+static inline void player_jump_draw(Canvas* c) {
+    canvas_clear(c, 0);
+    /* body shifted up slightly, legs tucked */
+    player_draw_body(c, /*legs_y=*/250, /*arm_offset=*/10, /*glow_eyes=*/true);
+    /* overlay: tucked legs (shorter, higher) */
+    canvas_fill_rect_rounded(c, 134, 250, 36, 30, 8, PV_CLOAK_GREY);
+    canvas_fill_rect_rounded(c, 194, 250, 36, 30, 8, PV_CLOAK_GREY);
+    canvas_fill_rect_rounded(c, 132, 275, 40, 12, 6, PV_VOID_BLACK);
+    canvas_fill_rect_rounded(c, 192, 275, 40, 12, 6, PV_VOID_BLACK);
+}
+
+/* ---- attack: voidscrew extended horizontally ---- */
+static inline void player_attack_draw(Canvas* c) {
+    canvas_clear(c, 0);
+    player_draw_body(c, /*legs_y=*/240, /*arm_offset=*/0, /*glow_eyes=*/true);
+    /* voidscrew blade extending to the right */
+    canvas_fill_rect_rounded(c, 264, 190, 80, 12, 4, PV_CLOAK_HI);     /* hilt */
+    canvas_fill_triangle(c, 340, 180, 340, 212, 364, 196, PV_VOIDSCREW_GLOW); /* blade tip */
+    /* blade glow trail */
+    canvas_fill_radial_glow(c, 320, 196, 20, PV_VOIDSCREW_GLOW, 120);
+    canvas_fill_radial_glow(c, 350, 196, 16, PV_VOID_BRIGHT, 100);
+}
+
+/* ---- pogo: voidscrew pointing down, legs up ---- */
+static inline void player_pogo_draw(Canvas* c) {
+    canvas_clear(c, 0);
+    player_draw_body(c, /*legs_y=*/250, /*arm_offset=*/0, /*glow_eyes=*/true);
+    canvas_fill_rect_rounded(c, 140, 250, 30, 24, 8, PV_CLOAK_GREY);
+    canvas_fill_rect_rounded(c, 194, 250, 30, 24, 8, PV_CLOAK_GREY);
+    canvas_fill_rect_rounded(c, 170, 290, 24, 50, 4, PV_CLOAK_HI);
+    canvas_fill_triangle(c, 160, 340, 194, 340, 182, 364, PV_VOIDSCREW_GLOW);
+    canvas_fill_radial_glow(c, 182, 348, 16, PV_VOIDSCREW_GLOW, 140);
+    canvas_fill_radial_glow(c, 182, 356, 12, PV_VOID_BRIGHT, 120);
+}
 
 #endif /* ART_PLAYER_SPRITE_H */

@@ -5,12 +5,12 @@
 static SDL_Scancode keymap[BTN_COUNT] = {
     [BTN_LEFT]   = SDL_SCANCODE_LEFT,
     [BTN_RIGHT]  = SDL_SCANCODE_RIGHT,
-    [BTN_UP]     = SDL_SCANCODE_UP,
-    [BTN_DOWN]   = SDL_SCANCODE_DOWN,
-    [BTN_JUMP]   = SDL_SCANCODE_Z,        /* Z = jump                    */
-    [BTN_ATTACK] = SDL_SCANCODE_X,        /* X = voidslash               */
-    [BTN_POGO]   = SDL_SCANCODE_C,        /* C = alt pogo trigger        */
-    [BTN_SPRINT] = SDL_SCANCODE_LSHIFT,   /* Shift = mindless sprint     */
+    [BTN_UP]     = SDL_SCANCODE_UP,         /* UP = jump (Hollow Knight style) */
+    [BTN_DOWN]   = SDL_SCANCODE_DOWN,       /* DOWN = fastfall / aim pogo      */
+    [BTN_JUMP]   = SDL_SCANCODE_UP,         /* alias: jump is the up arrow     */
+    [BTN_ATTACK] = SDL_SCANCODE_X,          /* X = voidslash                   */
+    [BTN_POGO]   = SDL_SCANCODE_C,          /* C = alt pogo trigger            */
+    [BTN_SPRINT] = SDL_SCANCODE_LSHIFT,     /* Shift = mindless sprint         */
     [BTN_PAUSE]  = SDL_SCANCODE_P,
     [BTN_SAVE]    = SDL_SCANCODE_F5,
     [BTN_QUIT]   = SDL_SCANCODE_ESCAPE,

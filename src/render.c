@@ -1,4 +1,5 @@
 #include "render.h"
+#include "canvas.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,36 +17,46 @@ static SDL_Texture* bake_radial_glow(SDL_Renderer* rend, int radius,
                                      uint32_t rgb_abgr_no_alpha, uint8_t max_alpha);
 static SDL_Texture* bake_vignette(SDL_Renderer* rend, int w, int h);
 static SDL_Texture* bake_grain(SDL_Renderer* rend, int side);
+static SDL_Texture* bake_canvas_to_texture(SDL_Renderer* rend, const Canvas* c);
 
-/* ---- atlas: each sprite baked into a horizontal strip --------------- *
- * Layout (matches SPRITE_* enum in render.h):
- *   0..5  player frames  (32x32 each)
- *   6     voidscrew      (16x16)
- *   7..11 crawler frames (32x32 each)
- *   12..15 tiles          (32x32 each)
+/* ---- procedural sprite definitions -------------------------------- *
+ * Each entry is a function pointer that draws the sprite into a Canvas.
+ * The canvas is 364x364; we bake it to an SDL_Texture at startup and
+ * display it scaled (LINEAR) for a painted look.
  */
+typedef void (*SpriteDrawFn)(Canvas* c);
+
+static SpriteDrawFn sprite_draw_fns[SPRITE_COUNT] = {
+    [SPRITE_PLAYER_IDLE]    = player_idle_draw,
+    [SPRITE_PLAYER_WALK1]   = player_walk1_draw,
+    [SPRITE_PLAYER_WALK2]   = player_walk2_draw,
+    [SPRITE_PLAYER_JUMP]    = player_jump_draw,
+    [SPRITE_PLAYER_ATTACK]  = player_attack_draw,
+    [SPRITE_PLAYER_POGO]    = player_pogo_draw,
+    [SPRITE_VOIDSCREW]      = voidscrew_idle_draw,
+    [SPRITE_CRAWLER_IDLE]   = crawler_idle_draw,
+    [SPRITE_CRAWLER_WALK1]  = crawler_walk1_draw,
+    [SPRITE_CRAWLER_WALK2]  = crawler_walk2_draw,
+    [SPRITE_CRAWLER_ATTACK] = crawler_attack_draw,
+    [SPRITE_CRAWLER_HURT]   = crawler_hurt_draw,
+    /* tiles stay grid-based (NULL here, handled by atlas) */
+    [SPRITE_TILE_STONE]     = NULL,
+    [SPRITE_TILE_MOSS]      = NULL,
+    [SPRITE_TILE_GROUND]    = NULL,
+    [SPRITE_TILE_BGWALL]    = NULL,
+};
+
+/* ---- grid-based tile definitions (32x32) ------------------------- */
 typedef struct {
     const char** rows;
     int w, h;
-} SpriteDef;
+} GridDef;
 
-static SpriteDef sprite_defs[SPRITE_COUNT] = {
-    [SPRITE_PLAYER_IDLE]    = { (const char**)player_idle,    PLAYER_W,  PLAYER_H  },
-    [SPRITE_PLAYER_WALK1]   = { (const char**)player_walk1,   PLAYER_W,  PLAYER_H  },
-    [SPRITE_PLAYER_WALK2]   = { (const char**)player_walk2,   PLAYER_W,  PLAYER_H  },
-    [SPRITE_PLAYER_JUMP]    = { (const char**)player_jump,    PLAYER_W,  PLAYER_H  },
-    [SPRITE_PLAYER_ATTACK]  = { (const char**)player_attack,  PLAYER_W,  PLAYER_H  },
-    [SPRITE_PLAYER_POGO]    = { (const char**)player_pogo,    PLAYER_W,  PLAYER_H  },
-    [SPRITE_VOIDSCREW]      = { (const char**)voidscrew_idle, VOIDSCREW_W, VOIDSCREW_H },
-    [SPRITE_CRAWLER_IDLE]   = { (const char**)crawler_idle,   CRAWLER_W, CRAWLER_H },
-    [SPRITE_CRAWLER_WALK1]  = { (const char**)crawler_walk1,  CRAWLER_W, CRAWLER_H },
-    [SPRITE_CRAWLER_WALK2]  = { (const char**)crawler_walk2,  CRAWLER_W, CRAWLER_H },
-    [SPRITE_CRAWLER_ATTACK] = { (const char**)crawler_attack, CRAWLER_W, CRAWLER_H },
-    [SPRITE_CRAWLER_HURT]   = { (const char**)crawler_hurt,   CRAWLER_W, CRAWLER_H },
-    [SPRITE_TILE_STONE]     = { (const char**)tile_stone,     TILE_W,    TILE_H    },
-    [SPRITE_TILE_MOSS]      = { (const char**)tile_moss,      TILE_W,    TILE_H    },
-    [SPRITE_TILE_GROUND]    = { (const char**)tile_ground,    TILE_W,    TILE_H    },
-    [SPRITE_TILE_BGWALL]    = { (const char**)tile_bgwall,    TILE_W,    TILE_H    },
+static GridDef tile_defs[4] = {
+    [0] = { (const char**)tile_stone,  TILE_W, TILE_H },
+    [1] = { (const char**)tile_moss,   TILE_W, TILE_H },
+    [2] = { (const char**)tile_ground, TILE_W, TILE_H },
+    [3] = { (const char**)tile_bgwall, TILE_W, TILE_H },
 };
 
 bool renderer_init(Renderer* r, int window_w, int window_h) {
@@ -96,6 +107,26 @@ bool renderer_init(Renderer* r, int window_w, int window_h) {
         return false;
     }
 
+    /* Bake procedural 364x364 sprites into per-sprite textures.
+     * Use LINEAR scaling so they downscale smoothly to display size. */
+    for (int i = 0; i < SPRITE_COUNT; i++) {
+        if (!sprite_draw_fns[i]) continue;
+        Canvas c;
+        sprite_draw_fns[i](&c);
+        r->sprite_tex[i] = bake_canvas_to_texture(r->rend, &c);
+        r->sprite_w[i] = CANVAS_W;
+        r->sprite_h[i] = CANVAS_H;
+        if (r->sprite_tex[i]) {
+            SDL_SetTextureBlendMode(r->sprite_tex[i], SDL_BLENDMODE_BLEND);
+            SDL_SetTextureScaleMode(r->sprite_tex[i], SDL_ScaleModeLinear);
+        }
+    }
+    /* tiles stay in the atlas at 32x32 (NEAREST) */
+    for (int i = SPRITE_TILE_STONE; i <= SPRITE_TILE_BGWALL; i++) {
+        r->sprite_w[i] = TILE_W;
+        r->sprite_h[i] = TILE_H;
+    }
+
     /* Pre-bake post textures */
     r->void_glow = bake_radial_glow(r->rend, 64, 0xC030FF, 255);
     r->vignette  = bake_vignette(r->rend, r->logical_w, r->logical_h);
@@ -106,6 +137,9 @@ bool renderer_init(Renderer* r, int window_w, int window_h) {
 
 void renderer_free(Renderer* r) {
     atlas_free(&r->atlas);
+    for (int i = 0; i < SPRITE_COUNT; i++) {
+        if (r->sprite_tex[i]) SDL_DestroyTexture(r->sprite_tex[i]);
+    }
     if (r->void_glow) SDL_DestroyTexture(r->void_glow);
     if (r->vignette)  SDL_DestroyTexture(r->vignette);
     if (r->grain)     SDL_DestroyTexture(r->grain);
@@ -206,14 +240,27 @@ static SDL_Texture* bake_grain(SDL_Renderer* rend, int side) {
 }
 
 /* ---- bake all sprites into a single horizontal atlas ----------- */
+/* ---- bake a Canvas (364x364 ABGR) into an SDL_Texture ----------- */
+static SDL_Texture* bake_canvas_to_texture(SDL_Renderer* rend, const Canvas* c) {
+    Uint32 rmask = 0x000000FF, gmask = 0x0000FF00,
+           bmask = 0x00FF0000, amask = 0xFF000000;
+    SDL_Surface* surf = SDL_CreateRGBSurface(0, CANVAS_W, CANVAS_H, 32,
+                                             rmask, gmask, bmask, amask);
+    if (!surf) return NULL;
+    SDL_SetSurfaceBlendMode(surf, SDL_BLENDMODE_NONE);
+    memcpy(surf->pixels, c->px, CANVAS_W * CANVAS_H * sizeof(uint32_t));
+    SDL_Texture* tex = SDL_CreateTextureFromSurface(rend, surf);
+    SDL_FreeSurface(surf);
+    return tex;
+}
+
+/* ---- atlas: now holds ONLY the 4 tile sprites (32x32 each) ------ *
+ * Procedural sprites (player, crawler, voidscrew) get their own textures.
+ */
 bool atlas_build(SpriteAtlas* atlas, SDL_Renderer* rend) {
     memset(atlas, 0, sizeof(*atlas));
-    int total_w = 0;
-    int max_h   = 0;
-    for (int i = 0; i < SPRITE_COUNT; i++) {
-        total_w += sprite_defs[i].w;
-        if (sprite_defs[i].h > max_h) max_h = sprite_defs[i].h;
-    }
+    int total_w = 4 * TILE_W;   /* 4 tiles, each 32 wide */
+    int max_h   = TILE_H;
     atlas->w = total_w;
     atlas->h = max_h;
 
@@ -227,12 +274,19 @@ bool atlas_build(SpriteAtlas* atlas, SDL_Renderer* rend) {
 
     Uint32* px = (Uint32*)surf->pixels;
     int xoff = 0;
-    for (int i = 0; i < SPRITE_COUNT; i++) {
-        const SpriteDef* d = &sprite_defs[i];
-        atlas->rects[i].x = xoff;
-        atlas->rects[i].y = 0;
-        atlas->rects[i].w = d->w;
-        atlas->rects[i].h = d->h;
+    for (int t = 0; t < 4; t++) {
+        const GridDef* d = &tile_defs[t];
+        SpriteID id;
+        switch (t) {
+            case 0: id = SPRITE_TILE_STONE;  break;
+            case 1: id = SPRITE_TILE_MOSS;   break;
+            case 2: id = SPRITE_TILE_GROUND; break;
+            default: id = SPRITE_TILE_BGWALL; break;
+        }
+        atlas->rects[id].x = xoff;
+        atlas->rects[id].y = 0;
+        atlas->rects[id].w = d->w;
+        atlas->rects[id].h = d->h;
         for (int y = 0; y < d->h; y++) {
             const char* row = d->rows[y];
             for (int x = 0; x < d->w; x++) {
@@ -269,19 +323,37 @@ void renderer_present(Renderer* r) {
 }
 
 void draw_sprite(Renderer* r, SpriteID id, float x, float y, int flip) {
-    if (id < 0 || id >= SPRITE_COUNT) return;
-    const SDL_Rect* src = &r->atlas.rects[id];
-    SDL_Rect dst = { (int)x, (int)y, src->w, src->h };
-    SDL_RendererFlip f = flip ? SDL_FLIP_HORIZONTAL : SDL_FLIP_NONE;
-    SDL_RenderCopyEx(r->rend, r->atlas.texture, src, &dst, 0, NULL, f);
+    draw_sprite_screen(r, id, (int)x, (int)y, flip);
 }
 
 void draw_sprite_screen(Renderer* r, SpriteID id, int sx, int sy, int flip) {
     if (id < 0 || id >= SPRITE_COUNT) return;
-    const SDL_Rect* src = &r->atlas.rects[id];
-    SDL_Rect dst = { sx, sy, src->w, src->h };
     SDL_RendererFlip f = flip ? SDL_FLIP_HORIZONTAL : SDL_FLIP_NONE;
-    SDL_RenderCopyEx(r->rend, r->atlas.texture, src, &dst, 0, NULL, f);
+    if (r->sprite_tex[id]) {
+        /* procedural 364x364 sprite: draw at native source size.
+         * Caller should use draw_sprite_screen_scaled for display-sized. */
+        SDL_Rect dst = { sx, sy, r->sprite_w[id], r->sprite_h[id] };
+        SDL_RenderCopyEx(r->rend, r->sprite_tex[id], NULL, &dst, 0, NULL, f);
+    } else {
+        /* grid tile from atlas */
+        const SDL_Rect* src = &r->atlas.rects[id];
+        SDL_Rect dst = { sx, sy, src->w, src->h };
+        SDL_RenderCopyEx(r->rend, r->atlas.texture, src, &dst, 0, NULL, f);
+    }
+}
+
+void draw_sprite_screen_scaled(Renderer* r, SpriteID id, int sx, int sy,
+                               int dw, int dh, int flip) {
+    if (id < 0 || id >= SPRITE_COUNT) return;
+    SDL_RendererFlip f = flip ? SDL_FLIP_HORIZONTAL : SDL_FLIP_NONE;
+    if (r->sprite_tex[id]) {
+        SDL_Rect dst = { sx, sy, dw, dh };
+        SDL_RenderCopyEx(r->rend, r->sprite_tex[id], NULL, &dst, 0, NULL, f);
+    } else {
+        const SDL_Rect* src = &r->atlas.rects[id];
+        SDL_Rect dst = { sx, sy, dw, dh };
+        SDL_RenderCopyEx(r->rend, r->atlas.texture, src, &dst, 0, NULL, f);
+    }
 }
 
 void draw_rect_screen(Renderer* r, IRect rc, uint32_t color_abgr, int filled) {

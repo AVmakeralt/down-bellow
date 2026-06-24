@@ -193,8 +193,10 @@ static void crawler_update(Enemy* e, Player* p, const Level* lvl) {
 
 static void crawler_draw(Enemy* e, Renderer* r, const Camera* c) {
     CrawlerData* d = D(e);
-    float sx = e->pos.x + (CRAWLER_W - CRAWLER_SPRITE_W) * 0.5f;
-    float sy = e->pos.y + CRAWLER_H - CRAWLER_SPRITE_H;
+    /* sprite is 364x364 source, displayed at CRAWLER_DISPLAY_W x CRAWLER_DISPLAY_H.
+     * Center on collision box horizontally; align bottom to feet. */
+    float sx = e->pos.x + (CRAWLER_W - CRAWLER_DISPLAY_W) * 0.5f;
+    float sy = e->pos.y + CRAWLER_H - CRAWLER_DISPLAY_H;
     IVec2 s = camera_world_to_screen(c, sx, sy);
 
     SpriteID id;
@@ -210,22 +212,25 @@ static void crawler_draw(Enemy* e, Renderer* r, const Camera* c) {
         default:         id = SPRITE_CRAWLER_IDLE;
     }
     int flip = (e->facing < 0) ? 1 : 0;
-    draw_sprite_screen(r, id, s.x, s.y, flip);
+    draw_sprite_screen_scaled(r, id, s.x, s.y,
+                              CRAWLER_DISPLAY_W, CRAWLER_DISPLAY_H, flip);
 
-    /* pulsing eye glow: crawler's eye is at sprite y=9..11, x=12..20.
+    /* pulsing eye glow: crawler's eye is at ~50% across, ~55% down.
      * Pulses faster when in aggro/attack state. */
     {
         float freq = (e->state == ES_WINDUP || e->state == ES_ATTACK) ? 0.20f : 0.08f;
         float pulse = 0.5f + 0.5f * sinf(e->anim_timer * freq);
-        Uint8 a = (Uint8)(60 + 120 * pulse);
-        IRect eye = { s.x + 12, s.y + 9, 9, 4 };
-        Color eye_col = 0x00C030FF | ((Uint32)a << 24);   /* signature void purple */
+        Uint8 a = (Uint8)(40 + 80 * pulse);
+        int eye_x = s.x + (int)(CRAWLER_DISPLAY_W * 0.45f);
+        int eye_y = s.y + (int)(CRAWLER_DISPLAY_H * 0.50f);
+        IRect eye = { eye_x, eye_y, 8, 6 };
+        Color eye_col = 0x00C030FF | ((Uint32)a << 24);
         draw_rect_screen(r, eye, eye_col, 1);
     }
 
     /* hit flash */
     if (e->hit_flash > 0) {
-        IRect rc = { s.x, s.y, CRAWLER_SPRITE_W, CRAWLER_SPRITE_H };
+        IRect rc = { s.x, s.y, CRAWLER_DISPLAY_W, CRAWLER_DISPLAY_H };
         draw_rect_screen(r, rc, 0x80FFFFFF, 1);
     }
 

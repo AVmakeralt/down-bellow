@@ -43,6 +43,11 @@
 #define PLAYER_H           26
 #define PLAYER_SPRITE_W    32
 #define PLAYER_SPRITE_H    32
+/* Display size for procedural 364x364 sprites. The source canvas is
+ * 364x364; we downscale to these dimensions for the painted look.
+ * Bigger = more visible detail. 96x128 = 47% of 270px screen height. */
+#define PLAYER_DISPLAY_W   96
+#define PLAYER_DISPLAY_H   128
 
 #define GRAVITY            0.55f
 #define MAX_FALL           16.0f
@@ -123,6 +128,8 @@
 #define CRAWLER_H          14
 #define CRAWLER_SPRITE_W   32
 #define CRAWLER_SPRITE_H   32
+#define CRAWLER_DISPLAY_W  96
+#define CRAWLER_DISPLAY_H  96
 #define CRAWLER_SPEED      0.6f
 #define CRAWLER_HP         3
 #define CRAWLER_AGGRO_RANGE 180.0f

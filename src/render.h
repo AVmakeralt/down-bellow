@@ -54,6 +54,13 @@ typedef struct {
     SDL_Texture*  void_glow;       /* radial purple glow, additive blend  */
     SDL_Texture*  vignette;        /* dark-edge overlay, multiply blend   */
     SDL_Texture*  grain;           /* 64x64 noise tile, screen blend       */
+
+    /* Per-sprite textures for procedural 364x364 sprites.
+     * Tiles (SPRITE_TILE_*) stay in the atlas; sprites get their own
+     * texture so we can use LINEAR scaling for painted look. */
+    SDL_Texture*  sprite_tex[SPRITE_COUNT];
+    int           sprite_w[SPRITE_COUNT];   /* source width  (364 for proc, 32 for tiles) */
+    int           sprite_h[SPRITE_COUNT];   /* source height */
 } Renderer;
 
 bool renderer_init(Renderer* r, int window_w, int window_h);
@@ -67,8 +74,12 @@ void renderer_present(Renderer* r);
 
 /* Draw a sprite at world-space (x, y), flipped horizontally if flip!=0. */
 void draw_sprite(Renderer* r, SpriteID id, float x, float y, int flip);
-/* Draw a sprite at screen-space (sx, sy). */
+/* Draw a sprite at screen-space (sx, sy) at native source size. */
 void draw_sprite_screen(Renderer* r, SpriteID id, int sx, int sy, int flip);
+/* Draw a sprite at screen-space (sx, sy) scaled to (dw, dh). Used for
+ * 364x364 procedural sprites displayed at ~96px. */
+void draw_sprite_screen_scaled(Renderer* r, SpriteID id, int sx, int sy,
+                               int dw, int dh, int flip);
 
 /* Draw a colored rect in screen-space (for debug hitboxes, etc.) */
 void draw_rect_screen(Renderer* r, IRect rc, uint32_t color_abgr, int filled);

@@ -17,17 +17,13 @@ void world_init(World* w, const char* level_path, Audio* audio) {
     strncpy(w->level_path, level_path, sizeof(w->level_path) - 1);
     level_load(&w->level, level_path);
 
-    /* try to load existing save; if present, restore player state */
     save_init(&w->save);
     bool have_save = save_read(&w->save, SAVE_FILE);
     Vec2 spawn = w->level.player_spawn;
     if (have_save && strcmp(w->save.level_path, level_path) == 0) {
-        /* same level as the save -> restore position */
         spawn = vec2(w->save.player_x, w->save.player_y);
         w->play_time_ticks = w->save.play_time_ticks;
     } else if (have_save) {
-        /* save exists but for a different level -> keep play_time, spawn at
-         * this level's default entry point */
         w->play_time_ticks = w->save.play_time_ticks;
     }
     player_init(&w->player, spawn);
@@ -115,6 +111,46 @@ bool world_save_now(World* w, SaveReason reason) {
 void world_update(World* w, const Input* in, float dt) {
     /* hit-stop: freeze the world while player.hitstop > 0 */
     if (w->player.hitstop > 0) {
+        camera_update(&w->camera);
+        return;
+    }
+
+    /* ---- death / respawn ---- */
+    if (w->player.dead) {
+        w->player.death_timer--;
+        /* still apply gravity so the body falls */
+        w->player.vel.y += g_tunables.gravity * 0.5f;
+        w->player.pos.y += w->player.vel.y;
+        if (w->player.death_timer <= 0) {
+            /* respawn: reload from save.dat if present, else reset to spawn */
+            SaveData sd;
+            save_init(&sd);
+            bool have = save_read(&sd, SAVE_FILE);
+            if (have && strcmp(sd.level_path, w->level_path) == 0) {
+                w->player.pos.x = sd.player_x;
+                w->player.pos.y = sd.player_y;
+                w->player.facing = sd.player_facing;
+                w->player.hp = sd.player_hp;
+                w->player.kenotita = sd.player_kenotita;
+            } else {
+                /* no save or different level: respawn at level spawn */
+                w->player.pos = w->level.player_spawn;
+                w->player.hp = 5;
+                w->player.kenotita = KENOTITA_MAX;
+            }
+            w->player.vel = vec2(0, 0);
+            w->player.dead = false;
+            w->player.death_timer = 0;
+            w->player.hurt_timer = 60;   /* brief i-frames on respawn */
+            w->player.state = PS_IDLE;
+            w->player.sprint_timer = 0;
+            w->player.sprint_iframes = 0;
+            w->player.panic_lock = 0;
+            /* respawn burst */
+            Vec2 pc = rect_center(player_bounds(&w->player));
+            particles_burst(&w->particles, pc, 20, PT_VOID, vec2(0, -0.4f), 4.0f);
+            camera_add_trauma(&w->camera, SHAKE_TRAUMA_HURT);
+        }
         camera_update(&w->camera);
         return;
     }
@@ -323,8 +359,11 @@ static void draw_tiles(World* w, Renderer* r) {
 static void draw_player(World* w, Renderer* r) {
     Player* p = &w->player;
     Camera* c = &w->camera;
-    float sx = p->pos.x + (PLAYER_W - PLAYER_SPRITE_W) * 0.5f;
-    float sy = p->pos.y + PLAYER_H - PLAYER_SPRITE_H;
+    /* sprite is 364x364 source, displayed at PLAYER_DISPLAY_W x PLAYER_DISPLAY_H.
+     * Center the sprite on the collision box horizontally; align feet to
+     * bottom of collision box. */
+    float sx = p->pos.x + (PLAYER_W - PLAYER_DISPLAY_W) * 0.5f;
+    float sy = p->pos.y + PLAYER_H - PLAYER_DISPLAY_H;
     IVec2 s = camera_world_to_screen(c, sx, sy);
 
     SpriteID id;
@@ -348,30 +387,35 @@ static void draw_player(World* w, Renderer* r) {
     if (p->state == PS_IDLE) {
         int phase = p->anim_timer % 60;
         if (phase < 30) breath_offset = 0;
-        else            breath_offset = 1;   /* shift down 1px = "exhale" */
+        else            breath_offset = 1;
     }
 
-    draw_sprite_screen(r, id, s.x, s.y + breath_offset, flip);
+    draw_sprite_screen_scaled(r, id, s.x, s.y + breath_offset,
+                              PLAYER_DISPLAY_W, PLAYER_DISPLAY_H, flip);
 
     /* eye pulse: cyan glow over the eyes, sine-modulated.
-     * Eyes are at sprite y=10..13, x=12..20 (player_sprite.h).
-     * Pulse every ~90 ticks. */
+     * Eyes are at ~30% down the sprite, ~45-55% across. */
     {
         float pulse = 0.5f + 0.5f * sinf(p->anim_timer * 0.07f);
-        Uint8 a = (Uint8)(50 + 90 * pulse);
-        IRect eye_glow = { s.x + 12, s.y + 10 + breath_offset, 8, 4 };
+        Uint8 a = (Uint8)(30 + 50 * pulse);
+        int eye_y = s.y + (int)(PLAYER_DISPLAY_H * 0.30f) + breath_offset;
+        int eye_x_left  = s.x + (int)(PLAYER_DISPLAY_W * 0.42f);
+        int eye_x_right = s.x + (int)(PLAYER_DISPLAY_W * 0.50f);
+        IRect eye_l = { eye_x_left,  eye_y, 6, 8 };
+        IRect eye_r = { eye_x_right, eye_y, 6, 8 };
         Color eye_col = 0x0088E0FF | ((Uint32)a << 24);
-        draw_rect_screen(r, eye_glow, eye_col, 1);
+        draw_rect_screen(r, eye_l, eye_col, 1);
+        draw_rect_screen(r, eye_r, eye_col, 1);
     }
 
     /* hurt flash */
     if (p->hurt_timer > 0 && (p->hurt_timer & 3) == 0) {
-        IRect rc = { s.x, s.y, PLAYER_SPRITE_W, PLAYER_SPRITE_H };
+        IRect rc = { s.x, s.y, PLAYER_DISPLAY_W, PLAYER_DISPLAY_H };
         draw_rect_screen(r, rc, 0x80FF2020, 1);
     }
     /* sprint i-frame shimmer */
     if (p->sprint_iframes > 0 && (p->sprint_iframes & 2) == 0) {
-        IRect rc = { s.x, s.y, PLAYER_SPRITE_W, PLAYER_SPRITE_H };
+        IRect rc = { s.x, s.y, PLAYER_DISPLAY_W, PLAYER_DISPLAY_H };
         draw_rect_screen(r, rc, 0x60FFFFFF, 1);
     }
 }

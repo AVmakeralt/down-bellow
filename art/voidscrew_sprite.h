@@ -1,38 +1,33 @@
 #ifndef ART_VOIDSCREW_SPRITE_H
 #define ART_VOIDSCREW_SPRITE_H
 
+#include "../src/canvas.h"
+
 /*
- * Voidscrew - the player's small blade. 16x16 grid sprite, hand-authored.
- * Used in HUD / inventory panels; the in-world slash is rendered via the
- * player's attack/pogo frames.
- *
- * Palette:
- *   1 = void black
- *   2 = cloak grey (hilt wrap)
- *   3 = cloak highlight (crossguard)
- *   f = voidscrew glow
+ * Voidscrew — the player's small blade. Procedural 364x364.
+ * Used in HUD / inventory; in-world slash is part of player_attack_draw.
  */
 
-#define VOIDSCREW_W 16
-#define VOIDSCREW_H 16
-
-static const char* voidscrew_idle[VOIDSCREW_H] = {
-    "................",  /*  0 */
-    "......11........",  /*  1 hilt top */
-    ".....1221.......",  /*  2 */
-    ".....1221.......",  /*  3 hilt wrap */
-    ".....1221.......",  /*  4 */
-    "......11........",  /*  5 crossguard base */
-    ".....1331.......",  /*  6 crossguard */
-    "....1ffff1......",  /*  7 blade glow start */
-    "....1ffff1......",  /*  8 */
-    ".....ffff.......",  /*  9 */
-    ".....ffff.......",  /* 10 */
-    "......ff........",  /* 11 */
-    "......ff........",  /* 12 */
-    ".......f........",  /* 13 tip */
-    "................",  /* 14 */
-    "................",  /* 15 */
-};
+static inline void voidscrew_idle_draw(Canvas* c) {
+    canvas_clear(c, 0);
+    /* hilt (dark wrap) */
+    canvas_fill_rect_rounded(c, 150, 60, 64, 80, 8, 0xFF1F0E26);
+    canvas_fill_rect_rounded(c, 160, 70, 44, 60, 6, 0xFF332B40);
+    /* hilt wrap lines */
+    canvas_draw_line(c, 165, 80, 199, 80, 2, 0xFF55406A);
+    canvas_draw_line(c, 165, 100, 199, 100, 2, 0xFF55406A);
+    canvas_draw_line(c, 165, 120, 199, 120, 2, 0xFF55406A);
+    /* crossguard */
+    canvas_fill_rect_rounded(c, 140, 140, 84, 20, 4, 0xFF55406A);
+    /* blade (tapering triangle with glow) */
+    canvas_fill_triangle(c, 150, 160, 214, 160, 182, 320, 0xFFFFFFEE);
+    /* blade edge highlight */
+    canvas_draw_line(c, 182, 160, 182, 320, 3, 0xFFFFFFFF);
+    /* blade glow */
+    canvas_fill_radial_glow(c, 182, 250, 50, 0xC030FF, 100);
+    canvas_fill_radial_glow(c, 182, 300, 30, 0xFFFFFFEE, 140);
+    /* tip void spark */
+    canvas_fill_radial_glow(c, 182, 320, 14, 0xC030FF, 200);
+}
 
 #endif /* ART_VOIDSCREW_SPRITE_H */

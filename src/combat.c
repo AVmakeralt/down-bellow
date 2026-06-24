@@ -28,13 +28,27 @@
 static void player_take_hit(Player* p, int dmg, World* w) {
     if (p->hurt_timer > 0) return;
     if (player_is_intangible(p)) return;   /* sprint i-frames */
+    if (p->dead) return;
     p->hp -= dmg;
     p->hurt_timer = 40;
-    p->state = PS_HURT;
     p->vel.y = -4.0f;
     p->vel.x = -p->facing * 3.0f;
-    /* hit-stop + shake on player hurt */
     p->hitstop = g_tunables.hitstop_hit;
+    if (p->hp <= 0) {
+        p->hp = 0;
+        p->dead = true;
+        p->death_timer = 90;   /* 1.5s death animation before respawn */
+        p->hitstop = g_tunables.hitstop_kill;
+        if (w) {
+            camera_add_trauma(&w->camera, SHAKE_TRAUMA_KILL);
+            Vec2 pc = rect_center(player_bounds(p));
+            particles_burst(&w->particles, pc, 24, PT_VOID, vec2(0, -0.3f), 5.0f);
+            particles_burst(&w->particles, pc, 16, PT_BLOOD, vec2(0, -0.8f), 6.0f);
+            if (w->audio) audio_play(w->audio, SFX_KILL);
+        }
+        return;
+    }
+    p->state = PS_HURT;
     if (w) {
         w->effects.enemy_hit_player = true;
         w->effects.last_event_pos = rect_center(player_bounds(p));

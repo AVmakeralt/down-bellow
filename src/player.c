@@ -196,10 +196,21 @@ void player_update(Player* p, AttackHitbox* atk, const Input* in,
         p->vel.y *= JUMP_CUT;
     }
 
-    /* ---- gravity ---- */
+    /* ---- gravity (+ fastfall when holding DOWN in air) ---- */
     if (p->state != PS_POGO) {
-        p->vel.y += g_tunables.gravity;
-        if (p->vel.y > MAX_FALL) p->vel.y = MAX_FALL;
+        float g = g_tunables.gravity;
+        float max_fall = MAX_FALL;
+        /* fastfall: holding DOWN while airborne doubles gravity and raises
+         * the terminal velocity so you slam down fast (Hollow Knight style).
+         * Disabled during attack/sprint/hurt. */
+        bool can_fastfall = (p->state == PS_FALL || p->state == PS_JUMP)
+                            && in->down[BTN_DOWN];
+        if (can_fastfall) {
+            g *= 2.2f;
+            max_fall = MAX_FALL * 1.6f;
+        }
+        p->vel.y += g;
+        if (p->vel.y > max_fall) p->vel.y = max_fall;
     }
 
     /* ---- sprint trigger (manual) ---- */
