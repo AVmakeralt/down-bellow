@@ -14,12 +14,16 @@ void camera_init(Camera* c, int vw, int vh) {
     c->zoom = 1.0f;
     c->zoom_target = 1.0f;
     c->focus = vec2(0, 0);
+    /* Position player ~70% down the screen so the sky/background fills
+     * the top. This gives the "glued to ground, world above" framing. */
+    c->vertical_bias = vh * 0.25f;   /* 25% of viewport height below center */
 }
 
 void camera_follow(Camera* c, Vec2 target, Vec2 target_vel, int facing) {
     (void)target_vel;
     float desired_x = target.x - c->w * 0.5f + facing * CAMERA_LOOKAHEAD;
-    float desired_y = target.y - c->h * 0.5f;
+    /* offset camera UP so the player appears in the lower portion */
+    float desired_y = target.y - c->h * 0.5f - c->vertical_bias;
 
     float dx = desired_x - c->pos.x;
     float dy = desired_y - c->pos.y;

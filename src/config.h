@@ -30,7 +30,7 @@
 #define FIXED_HZ           60
 
 /* --- camera ----------------------------------------------------- */
-#define CAMERA_LERP        0.18f
+#define CAMERA_LERP        0.25f
 #define CAMERA_LOOKAHEAD   80.0f
 #define CAMERA_DEADZONE_X  120.0f
 #define CAMERA_DEADZONE_Y  80.0f

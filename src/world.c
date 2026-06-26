@@ -466,28 +466,42 @@ static void draw_debug(World* w, Renderer* r) {
 }
 
 /* ---- vertical void gradient -------------------------------------- *
- * Replaces flat black background. Deepens from violet-black at top to
- * pure void at bottom. Sells "depth" without any art.
+ * Moody night-sky gradient: deep blue-purple at the top, slightly warmer
+ * and lighter near the horizon (where the tent/cave glows live). This
+ * matches the reference image's atmospheric depth.
  */
 static void draw_void_gradient(World* w, Renderer* r) {
     int h = r->logical_h;
     int w_ = r->logical_w;
-    /* darker when sprinting (void absorption) */
     float darken = (w->player.state == PS_SPRINT) ? 0.5f : 1.0f;
-    /* vertical gradient: top = violet-black, bottom = pure void */
     for (int y = 0; y < h; y += 2) {
         float t = (float)y / (float)h;     /* 0 top, 1 bottom */
-        /* top color: 0x1A0E26 (cool void purple-black)
-         * bottom color: 0x050208 (deep void) */
-        Uint8 r_top = (Uint8)(0x1A * darken);
-        Uint8 g_top = (Uint8)(0x0E * darken);
-        Uint8 b_top = (Uint8)(0x26 * darken);
-        Uint8 r_bot = (Uint8)(0x05 * darken);
-        Uint8 g_bot = (Uint8)(0x02 * darken);
-        Uint8 b_bot = (Uint8)(0x08 * darken);
-        Uint8 rr = (Uint8)(r_top + (r_bot - r_top) * t);
-        Uint8 gg = (Uint8)(g_top + (g_bot - g_top) * t);
-        Uint8 bb = (Uint8)(b_top + (b_bot - b_top) * t);
+        /* top color: 0x0A0612 (deep void black-purple — the night sky)
+         * mid color: 0x1A0E26 (slightly lighter purple — horizon haze)
+         * bottom color: 0x0D0815 (dark again — ground void) */
+        Uint8 r_top = (Uint8)(0x0A * darken);
+        Uint8 g_top = (Uint8)(0x06 * darken);
+        Uint8 b_top = (Uint8)(0x12 * darken);
+        Uint8 r_mid = (Uint8)(0x1A * darken);
+        Uint8 g_mid = (Uint8)(0x0E * darken);
+        Uint8 b_mid = (Uint8)(0x26 * darken);
+        Uint8 r_bot = (Uint8)(0x0D * darken);
+        Uint8 g_bot = (Uint8)(0x08 * darken);
+        Uint8 b_bot = (Uint8)(0x15 * darken);
+        Uint8 rr, gg, bb;
+        if (t < 0.6f) {
+            /* top to mid: darken to mid */
+            float t2 = t / 0.6f;
+            rr = (Uint8)(r_top + (r_mid - r_top) * t2);
+            gg = (Uint8)(g_top + (g_mid - g_top) * t2);
+            bb = (Uint8)(b_top + (b_mid - b_top) * t2);
+        } else {
+            /* mid to bottom: mid to dark */
+            float t2 = (t - 0.6f) / 0.4f;
+            rr = (Uint8)(r_mid + (r_bot - r_mid) * t2);
+            gg = (Uint8)(g_mid + (g_bot - g_mid) * t2);
+            bb = (Uint8)(b_mid + (b_bot - b_mid) * t2);
+        }
         IRect rc = { 0, y, w_, 2 };
         draw_rect_screen(r, rc, 0xFF000000 | ((Uint32)bb << 16) | ((Uint32)gg << 8) | rr, 1);
     }
@@ -497,44 +511,101 @@ static void draw_void_gradient(World* w, Renderer* r) {
  * Pre-baked into the renderer? For now, draw 3 faint arch shapes that
  * scroll at 0.05x camera speed. Pure black with low alpha.
  */
+/* ---- far parallax: silhouetted structures (0.05x scroll) ---------- *
+ * Draws distant tents with warm interior glow, arched cave openings,
+ * and tall lamp poles — the atmospheric depth layer that makes the
+ * world feel like a place, not a void with platforms.
+ */
 static void draw_far_parallax(World* w, Renderer* r) {
     Camera* c = &w->camera;
-    /* three arches spaced every 600 world-px, scrolling at 0.05x */
     float scroll = c->pos.x * 0.05f;
-    for (int i = 0; i < 6; i++) {
-        float world_x = i * 600.0f - scroll;
+    int ground_y = r->logical_h - 30;   /* where structures sit on the horizon */
+
+    for (int i = 0; i < 16; i++) {
+        /* space structures every ~180px so 2-3 are always visible */
+        float world_x = i * 180.0f - scroll;
         int sx = (int)world_x;
-        /* only draw if on-screen */
-        if (sx < -120 || sx > r->logical_w + 120) continue;
-        int base_y = r->logical_h - 80;
-        /* draw a faint arch: rectangle base + arched top */
-        Color faint = 0x50100612;   /* deep void, low alpha */
-        IRect base = { sx, base_y, 80, 80 };
-        draw_rect_screen(r, base, faint, 1);
-        IRect top  = { sx + 8, base_y - 24, 64, 24 };
-        draw_rect_screen(r, top, faint, 1);
-        IRect spire = { sx + 32, base_y - 60, 16, 36 };
-        draw_rect_screen(r, spire, faint, 1);
+        if (sx < -200 || sx > r->logical_w + 200) continue;
+
+        int type = i % 3;   /* 0=tent, 1=cave arch, 2=lamp pole */
+        Color silhouette = 0xE0040208;   /* deep void, high opacity */
+
+        if (type == 0) {
+            /* ---- tent (triangle roof + rectangular body, warm glow inside) ---- */
+            int w_ = 60, h = 50;
+            int bx = sx, by = ground_y - h;
+            /* body */
+            IRect body = { bx, by, w_, h };
+            draw_rect_screen(r, body, silhouette, 1);
+            /* roof (triangle approximation: stacked rects) */
+            for (int row = 0; row < 15; row++) {
+                int rw = w_ - row * 4;
+                IRect rr = { bx + row * 2, by - 15 + row, rw, 1 };
+                draw_rect_screen(r, rr, silhouette, 1);
+            }
+            /* warm interior glow (orange-yellow window) */
+            IRect window = { bx + 20, by + 15, 20, 20 };
+            draw_rect_screen(r, window, 0x80FFA030, 1);
+            IRect window_core = { bx + 24, by + 19, 12, 12 };
+            draw_rect_screen(r, window_core, 0xB0FFC060, 1);
+        }
+        else if (type == 1) {
+            /* ---- cave arch (rounded opening with faint inner glow) ---- */
+            int w_ = 70, h = 60;
+            int bx = sx, by = ground_y - h;
+            /* arch silhouette: rectangle + rounded top (circle) */
+            IRect body = { bx, by + 15, w_, h - 15 };
+            draw_rect_screen(r, body, silhouette, 1);
+            IRect arch_top = { bx + 5, by, w_ - 10, 25 };
+            draw_rect_screen(r, arch_top, silhouette, 1);
+            /* inner glow (deep purple, like void light from within) */
+            IRect inner = { bx + 15, by + 20, w_ - 30, h - 30 };
+            draw_rect_screen(r, inner, 0x402A0A3A, 1);
+            IRect inner_core = { bx + 25, by + 30, w_ - 50, h - 45 };
+            draw_rect_screen(r, inner_core, 0x6055406A, 1);
+        }
+        else {
+            /* ---- tall lamp pole with glowing orb at top ---- */
+            int px = sx + 30;
+            int pole_h = 100;
+            /* pole (thin vertical line) */
+            IRect pole = { px, ground_y - pole_h, 3, pole_h };
+            draw_rect_screen(r, pole, 0x60100612, 1);
+            /* crossbar */
+            IRect bar = { px - 10, ground_y - pole_h, 23, 2 };
+            draw_rect_screen(r, bar, 0x60100612, 1);
+            /* glowing orb */
+            int oy = ground_y - pole_h + 5;
+            draw_void_glow(r, px + 1, oy, 14, 180);
+            IRect orb = { px - 2, oy - 3, 7, 7 };
+            draw_rect_screen(r, orb, 0xFFC030FF, 1);
+            IRect orb_core = { px - 1, oy - 2, 5, 5 };
+            draw_rect_screen(r, orb_core, 0xFFFFFFEE, 1);
+        }
+    }
+
+    /* ---- distant glowing orbs in the sky (moons / void lights) ---- */
+    for (int i = 0; i < 4; i++) {
+        float world_x = i * 800.0f + 300.0f - scroll * 0.5f;
+        int sx = (int)world_x;
+        if (sx < -50 || sx > r->logical_w + 50) continue;
+        int sy = 30 + (i * 17) % 40;
+        draw_void_glow(r, sx, sy, 8, 80);
+        IRect orb = { sx - 2, sy - 2, 5, 5 };
+        draw_rect_screen(r, orb, 0xA0886688, 1);
     }
 }
 
-/* ---- mid parallax: bgwall tiles at 0.4x -------------------------- */
+/* ---- mid parallax: DISABLED --------------------------------------- *
+ * Previously this tiled bgwall across the whole screen, which covered
+ * the gradient and far parallax. The reference image shows a gradient
+ * sky with silhouetted structures — no tiled mid-ground. So we skip
+ * this layer entirely and let the gradient + far parallax carry the
+ * atmosphere.
+ */
 static void draw_mid_parallax(World* w, Renderer* r) {
-    Camera* c = &w->camera;
-    int tx0 = (int)(c->pos.x * 0.4f / TILE_SIZE) - 1;
-    int tx1 = (int)((c->pos.x * 0.4f + c->w) / TILE_SIZE) + 1;
-    int ty0 = (int)(c->pos.y * 0.4f / TILE_SIZE) - 1;
-    int ty1 = (int)((c->pos.y * 0.4f + c->h) / TILE_SIZE) + 1;
-    for (int ty = ty0; ty <= ty1; ty++) {
-        for (int tx = tx0; tx <= tx1; tx++) {
-            /* background tiles don't map to level data — just draw a faint
-             * bgwall at every grid cell for atmosphere. */
-            int sx = (int)(tx * TILE_SIZE - c->pos.x * 0.4f + c->shake_x);
-            int sy = (int)(ty * TILE_SIZE - c->pos.y * 0.4f + c->shake_y);
-            /* dim it: draw with low alpha by drawing a translucent dark rect over */
-            draw_sprite_screen(r, SPRITE_TILE_BGWALL, sx, sy, 0);
-        }
-    }
+    (void)w; (void)r;
+    /* intentionally empty */
 }
 
 /* ---- ambient void motes (slow upward drift) --------------------- *

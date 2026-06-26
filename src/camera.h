@@ -15,6 +15,10 @@ typedef struct {
     float zoom;          /* 1.0 = normal; >1 = zoomed in on focus */
     Vec2  focus;         /* world-space point to zoom toward */
     float zoom_target;   /* eased toward this */
+
+    /* vertical offset: positions the player in the lower portion of the
+     * screen so the sky/background fills the top (like Hollow Knight). */
+    float vertical_bias;  /* 0 = center, + = player lower on screen */
 } Camera;
 
 void camera_init(Camera* c, int vw, int vh);
